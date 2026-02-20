@@ -51,6 +51,7 @@ def write_config(path: Path, config: dict[str, Any]) -> None:
     """
     tmp = path.with_suffix(".yaml.tmp")
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
             yaml.dump(
                 config,

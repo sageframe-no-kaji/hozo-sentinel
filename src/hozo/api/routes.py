@@ -154,6 +154,9 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
             write_config(_config_path, raw_seed)
         _load_jobs_and_scheduler()
     else:
+        # Bootstrap: no config file yet — seed a session secret in memory
+        # so the first credential save has a stable secret to write.
+        app.state.auth["session_secret"] = generate_secret()
         logger.warning("Config not found at %s — running without jobs", _config_path)
 
     app.add_middleware(HozoAuthMiddleware)
