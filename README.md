@@ -377,4 +377,4 @@ MIT — see [LICENSE](LICENSE)
 
 ---
 
-Made by [Andrew T Marcus](https://github.com/sageframe-no-kaji)
+Made by Andrew T. Marcus following the [Ho Process](https://github.com/sageframe-no-kaji/ho-system) · [github.com/sageframe-no-kaji](https://github.com/sageframe-no-kaji)
