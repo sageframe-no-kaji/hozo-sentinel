@@ -57,3 +57,7 @@ logs/
 
 # Docker
 .dockerignore
+
+# Obsidian vault metadata (co-located with project)
+.obsidian/
+.trash/

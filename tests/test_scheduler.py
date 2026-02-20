@@ -1,11 +1,15 @@
 """Tests for the APScheduler-based job scheduler."""
 
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
+from hozo.core.job import BackupJob, JobResult
 from hozo.scheduler.runner import HozoScheduler, parse_schedule
 
 
@@ -100,10 +104,6 @@ class TestHozoScheduler:
 
     @patch("hozo.scheduler.runner.run_job")
     def test_on_result_callback_invoked(self, mock_run_job: MagicMock, tmp_path: Path) -> None:
-        from datetime import datetime, timezone
-
-        from hozo.core.job import JobResult
-
         fake_result = JobResult(
             job_name="test_job", success=True, started_at=datetime.now(timezone.utc)
         )
@@ -118,3 +118,151 @@ class TestHozoScheduler:
         scheduler._run_job_wrapper(scheduler.jobs[0])
 
         callback.assert_called_once_with(fake_result)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Integration tests — real scheduler, real APScheduler background thread
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestSchedulerIntegration:
+    """
+    Integration tests that start a real BackgroundScheduler and verify jobs
+    actually fire.
+
+    ``run_job`` is patched so no real SSH / WOL / syncoid calls are made, but
+    the full APScheduler lifecycle (start → schedule → fire → callback → stop)
+    is exercised without mocking.
+    """
+
+    def _make_job(self) -> BackupJob:
+        return BackupJob(
+            name="integration_test_job",
+            source_dataset="rpool/data",
+            target_host="backup.local",
+            target_dataset="backup/data",
+            mac_address="AA:BB:CC:DD:EE:FF",
+        )
+
+    @patch("hozo.scheduler.runner.run_job")
+    def test_scheduled_job_actually_fires(self, mock_run_job: MagicMock) -> None:
+        """
+        Schedule a job to fire 1 second from now using DateTrigger.
+        Verify the job function and the on_result callback are both invoked.
+        """
+        from apscheduler.triggers.date import DateTrigger
+
+        fake_result = JobResult(
+            job_name="integration_test_job",
+            success=True,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+        )
+        mock_run_job.return_value = fake_result
+
+        fired_event = threading.Event()
+        received_results: list[JobResult] = []
+
+        def on_result(result: JobResult) -> None:
+            received_results.append(result)
+            fired_event.set()
+
+        scheduler = HozoScheduler(on_result=on_result)
+        job = self._make_job()
+
+        # Schedule to fire 1 second from now
+        fire_at = datetime.now(timezone.utc) + timedelta(seconds=1)
+        scheduler.schedule_job(job, DateTrigger(run_date=fire_at, timezone="UTC"))
+        scheduler.start()
+
+        try:
+            fired = fired_event.wait(timeout=10)
+        finally:
+            scheduler.stop(wait=False)
+
+        assert fired, "Job did not fire within 10 seconds — scheduler is not working"
+        assert mock_run_job.called, "run_job was never called by the scheduler"
+        assert len(received_results) == 1
+        assert received_results[0].job_name == "integration_test_job"
+        assert received_results[0].success is True
+
+    @patch("hozo.scheduler.runner.run_job")
+    def test_job_fires_multiple_times_with_interval(self, mock_run_job: MagicMock) -> None:
+        """
+        Use an IntervalTrigger every 0.5 s and verify the job fires at least twice,
+        proving the scheduler keeps running between invocations.
+        """
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        call_count = 0
+        reached_two = threading.Event()
+
+        def fake_run_job(job: BackupJob) -> JobResult:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                reached_two.set()
+            return JobResult(
+                job_name=job.name,
+                success=True,
+                started_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(timezone.utc),
+            )
+
+        mock_run_job.side_effect = fake_run_job
+
+        scheduler = HozoScheduler()
+        job = self._make_job()
+        scheduler.schedule_job(job, IntervalTrigger(seconds=0.5))
+        scheduler.start()
+
+        try:
+            fired_twice = reached_two.wait(timeout=10)
+        finally:
+            scheduler.stop(wait=False)
+
+        assert (
+            fired_twice
+        ), f"Job only fired {call_count} times in 10 s — scheduler may have stopped early"
+        assert call_count >= 2
+
+    @patch("hozo.scheduler.runner.run_job")
+    def test_stop_prevents_further_fires(self, mock_run_job: MagicMock) -> None:
+        """
+        After stop() is called no new job executions should occur.
+        """
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        fired_after_stop = threading.Event()
+        stopped = threading.Event()
+        call_count = 0
+
+        def fake_run_job(job: BackupJob) -> JobResult:
+            nonlocal call_count
+            call_count += 1
+            if stopped.is_set():
+                fired_after_stop.set()
+            return JobResult(
+                job_name=job.name,
+                success=True,
+                started_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(timezone.utc),
+            )
+
+        mock_run_job.side_effect = fake_run_job
+
+        scheduler = HozoScheduler()
+        job = self._make_job()
+        scheduler.schedule_job(job, IntervalTrigger(seconds=0.2))
+        scheduler.start()
+
+        # Let it fire at least once
+        time.sleep(0.5)
+        scheduler.stop(wait=True)
+        stopped.set()
+
+        # Wait briefly — any rogue fire would set fired_after_stop
+        time.sleep(0.5)
+
+        assert not fired_after_stop.is_set(), "Job fired after scheduler was stopped"
+        assert call_count >= 1, "Job should have fired at least once before stop"

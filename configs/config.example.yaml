@@ -67,6 +67,13 @@ jobs:
     # Seconds to wait between retries
     retry_delay: 60
 
+    # External drive spin-up — for NUC/mini-PC backup targets with USB/SATA drives
+    # that spin down to standby when idle.  Hōzō will issue a read-kick and wait
+    # up to disk_spinup_timeout seconds before starting the ZFS send.
+    #
+    # backup_device: /dev/sdb    # block device on the *remote* backup machine
+    # disk_spinup_timeout: 90    # seconds to wait for the drive to spin up (default: 90)
+
     # Cron-like schedule:
     #   "daily HH:MM"        → every day at HH:MM UTC
     #   "weekly <Day> HH:MM" → once a week at HH:MM UTC
@@ -74,6 +81,7 @@ jobs:
 
 
   # Job 2: Nightly backup of critical data only
+  # This example shows a NUC/mini-PC target with a spinning USB drive (/dev/sdb).
   - name: nightly_critical
     description: "Nightly backup of critical config and secrets"
     source: rpool/critical
@@ -84,6 +92,10 @@ jobs:
     shutdown_after: true
     retries: 2
     retry_delay: 30
+    # Drive spin-up: the backup machine keeps an external USB HDD in standby.
+    # Hōzō will kick /dev/sdb awake and wait up to 90 s before syncing.
+    backup_device: /dev/sdb
+    disk_spinup_timeout: 90
     schedule: "daily 02:00"
 
 

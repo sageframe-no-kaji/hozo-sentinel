@@ -101,3 +101,9 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
+filterwarnings = [
+    # APScheduler 3.x has a benign race in DateTrigger cleanup: after a
+    # one-shot job fires, the scheduler loop tries to remove it a second time
+    # and raises JobLookupError internally.  The job ran correctly.
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
+]

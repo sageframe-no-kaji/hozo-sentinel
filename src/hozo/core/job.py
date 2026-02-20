@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from hozo.core.backup import SyncoidError, list_remote_snapshots, run_syncoid
+from hozo.core.disk import wait_for_remote_drive_active
 from hozo.core.ssh import run_command, wait_for_ssh
 from hozo.core.wol import wake
 
@@ -33,6 +34,10 @@ class BackupJob:
     wol_broadcast: str = "255.255.255.255"
     no_privilege_elevation: bool = False
     description: str = ""
+    # External drive device path on the backup machine (e.g. /dev/sda).
+    # When set, Hōzō will wait for the drive to spin up before starting syncoid.
+    backup_device: Optional[str] = None
+    disk_spinup_timeout: int = 90  # seconds
 
 
 @dataclass
@@ -61,6 +66,7 @@ def run_job(job: BackupJob) -> JobResult:
     Workflow:
         1. Send WOL packet
         2. Wait for SSH to become available
+        2.5 Wait for the external drive to spin up (if backup_device is set)
         3. Run syncoid (with retries)
         4. Verify snapshots on remote
         5. Optionally shut down remote host
@@ -94,6 +100,36 @@ def run_job(job: BackupJob) -> JobResult:
             finished_at=datetime.now(timezone.utc),
             error=err,
         )
+
+    # ── Step 2.5: Ensure backup drive is spun up ────────────────────────────
+    if job.backup_device:
+        logger.info(
+            "[%s] Waiting for drive %s on %s to spin up…",
+            job.name,
+            job.backup_device,
+            job.target_host,
+        )
+        drive_ready = wait_for_remote_drive_active(
+            host=job.target_host,
+            device=job.backup_device,
+            ssh_user=job.ssh_user,
+            ssh_port=job.ssh_port,
+            ssh_key=job.ssh_key,
+            timeout=job.disk_spinup_timeout,
+        )
+        if not drive_ready:
+            err = (
+                f"Drive {job.backup_device} on {job.target_host} "
+                f"did not spin up within {job.disk_spinup_timeout}s"
+            )
+            logger.error("[%s] %s", job.name, err)
+            return JobResult(
+                job_name=job.name,
+                success=False,
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                error=err,
+            )
 
     # ── Step 3: Run syncoid (with retries) ───────────────────────────────────
     last_error: Optional[str] = None

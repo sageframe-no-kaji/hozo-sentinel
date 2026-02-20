@@ -3,7 +3,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -129,6 +129,38 @@ class HozoScheduler:
             registered += 1
 
         return registered
+
+    def schedule_job(self, job: BackupJob, trigger: Any, job_id: Optional[str] = None) -> str:
+        """
+        Register a single BackupJob with an arbitrary APScheduler trigger.
+
+        Useful for:
+        - Integration tests (``DateTrigger`` set 1 s in the future)
+        - One-off "run at this exact datetime" scheduling from the CLI
+
+        Args:
+            job: BackupJob configuration
+            trigger: Any APScheduler trigger instance
+                (CronTrigger, DateTrigger, IntervalTrigger, …)
+            job_id: Explicit job id; defaults to ``job.name``
+
+        Returns:
+            The APScheduler job id used
+        """
+        jid = job_id or job.name
+        if job not in self._jobs:
+            self._jobs.append(job)
+        self._scheduler.add_job(
+            func=self._run_job_wrapper,
+            trigger=trigger,
+            args=[job],
+            id=jid,
+            name=job.name,
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        logger.info("Scheduled job '%s' with trigger %s", job.name, trigger)
+        return jid
 
     def _run_job_wrapper(self, job: BackupJob) -> None:
         """Execute a job and invoke the result callback."""

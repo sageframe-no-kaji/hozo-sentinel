@@ -119,6 +119,8 @@ def jobs_from_config(config: dict[str, Any]) -> list[BackupJob]:
                 wol_broadcast=raw.get("broadcast_ip", "255.255.255.255"),
                 no_privilege_elevation=bool(raw.get("no_privilege_elevation", False)),
                 description=raw.get("description", ""),
+                backup_device=raw.get("backup_device"),
+                disk_spinup_timeout=int(raw.get("disk_spinup_timeout", 90)),
             )
         )
     return jobs

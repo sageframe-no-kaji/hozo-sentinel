@@ -1,46 +1,59 @@
-version: "3.9"
+# ─────────────────────────────────────────────────────────────────────────────
+# Hōzō — deploy to: /opt/services/hozo/
+#
+# Production setup:
+#   sudo mkdir -p /opt/services/hozo/{configs,logs,ssh}
+#   sudo cp configs/config.yaml /opt/services/hozo/configs/config.yaml
+#   sudo cp ~/.ssh/id_ed25519 /opt/services/hozo/ssh/id_ed25519
+#   sudo chmod 600 /opt/services/hozo/ssh/id_ed25519
+#   docker compose up -d
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
   hozo:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: /opt/services/hozo
+      dockerfile: /opt/services/hozo/Dockerfile
+    image: hozo:latest
     container_name: hozo
     restart: unless-stopped
 
-    # WOL requires NET_ADMIN + network_mode: host (or at least bridge with broadcast)
-    # For Tailscale-based setups, host networking is simplest.
+    # WOL requires NET_ADMIN + host networking so the magic packet reaches the
+    # LAN broadcast address.  For Tailscale-only setups this also avoids NAT.
     network_mode: host
 
-    # Cap needed to send WOL broadcast packets and Tailscale tun interface
     cap_add:
       - NET_ADMIN
       - NET_RAW
 
     environment:
       HOZO_CONFIG: /etc/hozo/config.yaml
-      # Optional: Tailscale auth key for automatic VPN join
+      TZ: America/New_York
+      # Uncomment to inject a Tailscale auth key at startup:
       # TAILSCALE_AUTHKEY: tskey-auth-xxxxx
 
     volumes:
-      # Mount your real config file here
-      - ./configs/config.yaml:/etc/hozo/config.yaml:ro
-      # Persist logs
-      - hozo_logs:/var/log/hozo
-      # SSH key for connecting to the remote backup box (read-only)
-      - ${HOME}/.ssh:/root/.ssh:ro
+      # ── Config (read-only inside container) ─────────────────────────────────
+      - /opt/services/hozo/configs/config.yaml:/etc/hozo/config.yaml:ro
 
-    ports:
-      # Only needed if NOT using host networking
-      # - "8000:8000"
-      []
+      # ── Logs (persistent, writable) ─────────────────────────────────────────
+      - /opt/services/hozo/logs:/var/log/hozo
+
+      # ── SSH identity for backup-box access (read-only, one key file) ─────────
+      - /opt/services/hozo/ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      - /opt/services/hozo/ssh/id_ed25519.pub:/root/.ssh/id_ed25519.pub:ro
+      # Optional known_hosts to avoid host-key prompts:
+      - /opt/services/hozo/ssh/known_hosts:/root/.ssh/known_hosts:ro
 
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/status"]
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
 
-volumes:
-  hozo_logs:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"

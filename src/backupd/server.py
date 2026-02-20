@@ -28,8 +28,9 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from backupd.disk import drive_summary, wait_for_drive_active
 from backupd.system import get_uptime, safe_shutdown
-from backupd.zfs import disk_spin_state, get_pool_status, list_pools
+from backupd.zfs import get_pool_status, list_pools
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,27 @@ async def shutdown_endpoint(request: Request) -> JSONResponse:
 
 @app.get("/disk/{device}")
 async def disk_status(device: str) -> dict[str, Any]:
-    """Query spin state of a disk device (e.g., /dev/sda → device=sda)."""
+    """
+    Return full drive summary for a device (e.g., ``/dev/sda`` → device=``sda``).
+
+    Response includes ``state``, ``active`` (bool), and ``io_completions``.
+    """
     dev_path = f"/dev/{device}"
-    return {"device": dev_path, "spin_state": disk_spin_state(dev_path)}
+    return drive_summary(dev_path)
+
+
+@app.post("/disk/{device}/spinup")
+async def disk_spinup(device: str) -> JSONResponse:
+    """
+    Immediately kick a standby/sleeping drive awake via a small sector read.
+
+    Returns once the drive has responded (or after a 60 s timeout).
+    Safe to call on an already-active drive.
+    """
+    dev_path = f"/dev/{device}"
+    logger.info("Spin-up requested for %s", dev_path)
+    ready = wait_for_drive_active(dev_path, timeout=60, spin_up_on_standby=True)
+    return JSONResponse({"device": dev_path, "ready": ready})
 
 
 def run(host: str = "0.0.0.0", port: int = 9999) -> None:

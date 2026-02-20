@@ -13,12 +13,13 @@ Hōzō automates off-site ZFS backups to a sleeping remote machine:
 
 1. **Wake** the remote backup server via Wake-on-LAN
 2. **Wait** for SSH to become available
-3. **Sync** ZFS datasets using [syncoid](https://github.com/jimsalterjrs/sanoid)
-4. **Verify** remote snapshots
-5. **Notify** via ntfy.sh, Pushover, or email
-6. **Shutdown** the remote server
+3. **Spin up** the external USB/SATA drive if it is in standby
+4. **Sync** ZFS datasets using [syncoid](https://github.com/jimsalterjrs/sanoid)
+5. **Verify** remote snapshots
+6. **Notify** via ntfy.sh, Pushover, or email
+7. **Shutdown** the remote server
 
-> Perfect for home-lab users who want off-site backups without running a second NAS 24/7.
+> Built for home-lab users who keep backups on a **tiny NUC or mini-PC** (Intel NUC, Beelink, Minisforum, Raspberry Pi 4/5, etc.) with an external USB or SATA hard drive — power-efficient, silent, and out of the way. The remote machine sleeps when not in use; Hōzō wakes it up, waits for the spinning drive to come online, and shuts it down when finished.
 
 ---
 
@@ -41,14 +42,22 @@ Hōzō automates off-site ZFS backups to a sleeping remote machine:
       WOL packet + SSH (via Tailscale / VPN)
                      ▼
 ╔══════════════════════════════════════════════════════╗
-║           REMOTE BACKUP BOX (sleeping mini-PC)       ║
+║     REMOTE BACKUP BOX  (NUC / mini-PC, sleeping)    ║
 ║    • Wakes on WOL                                    ║
 ║    • Tailscale auto-connects                         ║
 ║    • SSH accepts syncoid connection                  ║
+║    • External USB/SATA HDD spun up by Hōzō          ║
 ║    • ZFS receives incremental snapshot stream        ║
-║    • Optional: backupd agent for health & shutdown   ║
-║    • Shuts down when told                            ║
+║    • backupd agent: health, drive state, shutdown    ║
+║    • Powers down when done                          ║
 ╚══════════════════════════════════════════════════════╝
+          │
+   USB / eSATA
+          ▼
+    ┌───────────┐
+    │External   │
+    │HDD / SSD  │  (spins down between backups)
+    └───────────┘
 ```
 
 ---
@@ -170,6 +179,10 @@ jobs:
     broadcast_ip: 255.255.255.255
     no_privilege_elevation: false
     schedule: ""            # "daily HH:MM" or "weekly <Day> HH:MM"
+
+    # Drive spin-up — for NUC/mini-PC targets with USB/SATA standby drives:
+    backup_device: /dev/sdb  # block device on the *remote* machine; omit if not needed
+    disk_spinup_timeout: 90  # seconds to wait for drive to spin up (default: 90)
 ```
 
 ---
@@ -224,7 +237,8 @@ WantedBy=multi-user.target
 | GET    | `/ping`          | Liveness probe            |
 | GET    | `/status`        | ZFS pool status + uptime  |
 | POST   | `/shutdown`      | Safe shutdown (exports pools first) |
-| GET    | `/disk/{device}` | HDD spin state            |
+| GET    | `/disk/{device}`         | Drive state + I/O counters |
+| POST   | `/disk/{device}/spinup`  | Kick drive awake, wait up to 60 s |
 
 ---
 
@@ -259,11 +273,13 @@ hozo --config configs/config.example.yaml serve
 - SSH key access to remote backup box
 - Tailscale (or other VPN) for remote access
 
-**Remote backup box:**
+**Remote backup box (NUC / mini-PC recommended):**
 - ZFS installed
 - SSH enabled and accessible
 - Wake-on-LAN enabled in BIOS/UEFI
 - Tailscale installed and authenticated
+- `hdparm` installed for drive spin-state detection (`apt install hdparm`)
+- External USB or SATA hard drive (optional — set `backup_device` in config if present)
 
 ---
 
