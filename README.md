@@ -374,3 +374,7 @@ Tests live in [`tests/`](tests/) and cover backup logic, job orchestration, conf
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+---
+
+Made by [Andrew T Marcus](https://github.com/sageframe-no-kaji)
