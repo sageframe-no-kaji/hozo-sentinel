@@ -451,7 +451,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         if not creds:
             return RedirectResponse("/auth/register", status_code=302)
         next_url = request.query_params.get("next", "/")
-        return _tpl(request, "auth/login.html", {"next": next_url})
+        return _tpl(request, "auth/login.html", {"next": next_url, "has_credentials": True})
 
     @app.post("/auth/login/begin")
     async def post_login_begin(request: Request) -> JSONResponse:
@@ -515,7 +515,8 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     @app.get("/auth/register", response_class=HTMLResponse)
     async def get_register(request: Request) -> HTMLResponse:
         rp_id = app.state.auth.get("rp_id", "localhost")
-        return _tpl(request, "auth/register.html", {"rp_id": rp_id})
+        is_bootstrap = not bool(app.state.auth.get("credentials", []))
+        return _tpl(request, "auth/register.html", {"rp_id": rp_id, "is_bootstrap": is_bootstrap})
 
     @app.post("/auth/register/begin")
     async def post_register_begin(request: Request) -> JSONResponse:
@@ -529,8 +530,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         body = await request.body()
         rp_id = app.state.auth.get("rp_id", "localhost")
         origin = _detect_origin(request, rp_id)
-        data = json.loads(body)
-        device_name = data.get("deviceName", "My Device")
+        device_name = request.headers.get("x-device-name", "My Device")
         if not app.state.pending_challenges:
             return JSONResponse({"error": "No pending challenge"}, status_code=400)
         challenge_key = list(app.state.pending_challenges.keys())[0]
