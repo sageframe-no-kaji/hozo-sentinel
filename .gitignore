@@ -1,8 +1,9 @@
-# Python
+# ── Python ──────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyd
 .Python
 build/
 develop-eggs/
@@ -19,45 +20,87 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Virtual environments
+# ── Virtual environments ─────────────────────────────────────
 venv/
 ENV/
 env/
 .venv/
+.python-version
 
-# IDE
+# ── IDE / editors ────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.orig
+*.bak
 
-# Testing
+# ── Testing & coverage ───────────────────────────────────────
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 .tox/
 .nox/
+junit*.xml
+coverage.xml
+nosetests.xml
 
-# Type checking
+# ── Type checking ────────────────────────────────────────────
 .mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright/
 
-# Environment variables (secrets!)
+# ── Secrets & environment ─────────────────────────────────────
 .env
+.env.*
 *.env.local
+!*.env.example
 
-# OS
-.DS_Store
-Thumbs.db
+# Production config (never commit real config — use config.example.yaml)
+configs/config.yaml
 
-# Project specific
+# SSH keys / credentials
+*.pem
+*.key
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+id_ecdsa
+id_ecdsa.*
+known_hosts
+ssh/
+
+# ── Logs & databases ─────────────────────────────────────────
 logs/
 *.log
+*.sqlite
+*.sqlite3
+*.db
 
-# Docker
-.dockerignore
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# Obsidian vault metadata (co-located with project)
+# ── Profiling ────────────────────────────────────────────────
+*.prof
+*.lprof
+
+# ── Docker ───────────────────────────────────────────────────
+# (docker-compose.yml IS committed; override files are not)
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ── Obsidian vault metadata (co-located with project) ────────
 .obsidian/
 .trash/
