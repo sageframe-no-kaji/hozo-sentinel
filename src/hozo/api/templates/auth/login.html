@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Login — Hōzō{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-16">
+  <div class="card p-8 text-center">
+    <div class="text-5xl mb-4">🏯</div>
+    <h1 class="text-2xl font-bold mb-2">Hōzō</h1>
+    <p class="text-slate-400 text-sm mb-8">ZFS Backup Orchestrator</p>
+
+    {% if not has_credentials %}
+    <div class="badge-nil text-sm rounded p-3 mb-6 text-slate-300">
+      No devices registered yet.<br>
+      <a href="/auth/register" class="underline text-blue-400">Register your first device</a> to get started.
+    </div>
+    {% else %}
+    <p class="text-slate-400 text-sm mb-6">
+      Authenticate with your registered device (fingerprint, security key, or platform authenticator).
+    </p>
+    <button id="btn-login"
+            class="btn-primary w-full py-3 rounded text-white font-semibold text-sm cursor-pointer">
+      🔐 Authenticate
+    </button>
+    <div id="login-error" class="text-red-400 text-sm mt-4 hidden"></div>
+    {% endif %}
+  </div>
+</div>
+
+{% if has_credentials %}
+<script>
+const nextUrl = {{ next | tojson }};
+
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+function b64urlDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr.buffer;
+}
+
+document.getElementById('btn-login').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-login');
+  const err = document.getElementById('login-error');
+  btn.disabled = true;
+  btn.textContent = '⏳ Waiting for authenticator…';
+  err.classList.add('hidden');
+
+  try {
+    // 1. Get challenge from server
+    const optRes = await fetch('/auth/login/begin', { method: 'POST' });
+    if (!optRes.ok) throw new Error(await optRes.text());
+    const opts = await optRes.json();
+
+    // Decode binary fields
+    opts.challenge = b64urlDecode(opts.challenge);
+    if (opts.allowCredentials) {
+      opts.allowCredentials = opts.allowCredentials.map(c => ({
+        ...c, id: b64urlDecode(c.id)
+      }));
+    }
+
+    // 2. Browser prompts authenticator
+    const assertion = await navigator.credentials.get({ publicKey: opts });
+
+    // 3. Encode response and send to server
+    const body = JSON.stringify({
+      id: assertion.id,
+      rawId: b64url(assertion.rawId),
+      type: assertion.type,
+      response: {
+        clientDataJSON: b64url(assertion.response.clientDataJSON),
+        authenticatorData: b64url(assertion.response.authenticatorData),
+        signature: b64url(assertion.response.signature),
+        userHandle: assertion.response.userHandle ? b64url(assertion.response.userHandle) : null,
+      }
+    });
+
+    const verRes = await fetch('/auth/login/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    if (!verRes.ok) {
+      const e = await verRes.json();
+      throw new Error(e.error || 'Verification failed');
+    }
+
+    window.location.href = nextUrl || '/';
+  } catch (e) {
+    err.textContent = e.message || String(e);
+    err.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = '🔐 Authenticate';
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

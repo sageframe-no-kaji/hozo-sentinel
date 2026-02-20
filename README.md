@@ -283,6 +283,41 @@ hozo --config configs/config.example.yaml serve
 
 ---
 
+## Deployment
+
+### Tailscale Serve (recommended)
+
+Tailscale Serve tunnels traffic from your tailnet to a local port with automatic HTTPS and a valid certificate — no port-forwarding, no self-signed certs.
+
+```bash
+# Start Hōzō bound to localhost only
+hozo serve --host 127.0.0.1 --port 8000
+
+# Expose it on your tailnet over HTTPS
+tailscale serve https / proxy http://127.0.0.1:8000
+# Accessible at: https://<hostname>.tail<net>.ts.net
+```
+
+Then set `auth.rp_id` in `config.yaml` (or via **Settings → WebAuthn RP ID**) to the full Tailscale hostname, e.g. `mymac.tail1234.ts.net`. WebAuthn requires the RP ID to match the hostname in the browser address bar exactly.
+
+### Without Tailscale (UFW / firewall)
+
+```bash
+# Bind to a specific LAN interface only
+hozo serve --host 192.168.1.10 --port 8000
+
+# UFW — allow only from your home network
+ufw allow from 192.168.1.0/24 to any port 8000
+
+# Or restrict by interface (replace eth0 with your interface)
+ufw allow in on eth0 to any port 8000
+```
+
+Set `auth.rp_id` in config to the hostname you use in the browser (e.g. `192.168.1.10` or `hozo.lan`).
+Connections over plain HTTP require `rp_id` to be `localhost`, `127.0.0.1`, or `::1` — for any other hostname you **must** use HTTPS (Tailscale Serve or a reverse proxy with a valid cert).
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE)

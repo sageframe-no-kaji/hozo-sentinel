@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Settings — Hōzō{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Settings</h1>
+  {% if request.query_params.get('saved') %}
+  <span class="badge-ok text-xs px-3 py-1 rounded">✓ Saved</span>
+  {% endif %}
+</div>
+
+<form method="post" action="/settings" class="space-y-6">
+
+  <!-- General -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-4 text-sm uppercase tracking-wide">General</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">Default SSH timeout (seconds)</label>
+        <input type="number" name="ssh_timeout" value="{{ ssh_timeout }}" min="10" max="600"
+               class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">Default SSH user</label>
+        <input type="text" name="ssh_user" value="{{ ssh_user }}"
+               class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auth -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-1 text-sm uppercase tracking-wide">WebAuthn</h2>
+    <p class="text-slate-500 text-xs mb-4">
+      RP ID is the hostname exactly as it appears in your browser's address bar (no protocol, no port).
+      Change this only before you first register a device — changing it afterwards invalidates all credentials.
+    </p>
+    <div>
+      <label class="text-xs text-slate-400 block mb-1">RP ID</label>
+      <input type="text" name="rp_id" value="{{ rp_id }}"
+             placeholder="localhost  or  mymachine.tailnet.ts.net"
+             class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm font-mono"/>
+    </div>
+    <div class="mt-3">
+      <a href="/auth/devices" class="text-blue-400 text-xs underline">Manage registered devices →</a>
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-4 text-sm uppercase tracking-wide">Notifications</h2>
+
+    <div class="mb-4">
+      <label class="text-xs text-slate-400 block mb-1">ntfy.sh topic</label>
+      <input type="text" name="ntfy_topic" value="{{ ntfy_topic }}"
+             placeholder="hozo-backups"
+             class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+      <p class="text-slate-600 text-xs mt-1">
+        Free push notifications. Subscribe at <code>ntfy.sh/&lt;topic&gt;</code> or self-host.
+      </p>
+    </div>
+
+    <details class="mb-4">
+      <summary class="text-xs text-slate-400 cursor-pointer select-none mb-2">Pushover (optional)</summary>
+      <div class="grid grid-cols-2 gap-4 mt-2">
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">App token</label>
+          <input type="text" name="pushover_token" value="{{ pushover_token }}"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm font-mono"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">User key</label>
+          <input type="text" name="pushover_user" value="{{ pushover_user }}"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm font-mono"/>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary class="text-xs text-slate-400 cursor-pointer select-none mb-2">SMTP / Email (optional)</summary>
+      <div class="grid grid-cols-2 gap-4 mt-2">
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Host</label>
+          <input type="text" name="smtp_host" value="{{ smtp_host }}"
+                 placeholder="smtp.example.com"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Port</label>
+          <input type="number" name="smtp_port" value="{{ smtp_port }}"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Username</label>
+          <input type="text" name="smtp_user" value="{{ smtp_user }}"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Password</label>
+          <input type="password" name="smtp_password" value="{{ smtp_password }}"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">From address</label>
+          <input type="email" name="smtp_from_addr" value="{{ smtp_from_addr }}"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">To address</label>
+          <input type="email" name="smtp_to_addr" value="{{ smtp_to_addr }}"
+                 class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm"/>
+        </div>
+        <div class="col-span-2 flex items-center gap-2">
+          <input type="checkbox" name="smtp_use_tls" id="smtp_tls"
+                 {% if smtp_use_tls %}checked{% endif %}
+                 class="accent-blue-500"/>
+          <label for="smtp_tls" class="text-xs text-slate-400">Use TLS (STARTTLS)</label>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="flex gap-3">
+    <button type="submit"
+            class="btn-primary px-6 py-2.5 rounded text-white text-sm font-semibold cursor-pointer">
+      Save Settings
+    </button>
+    <a href="/" class="text-slate-400 text-sm px-4 py-2.5">Cancel</a>
+  </div>
+
+</form>
+{% endblock %}

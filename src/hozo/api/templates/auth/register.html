@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Register Device — Hōzō{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-16">
+  <div class="card p-8 text-center">
+    <div class="text-4xl mb-4">🔑</div>
+    <h1 class="text-xl font-bold mb-2">
+      {% if is_bootstrap %}First-Time Setup{% else %}Register New Device{% endif %}
+    </h1>
+
+    {% if is_bootstrap %}
+    <p class="text-slate-400 text-sm mb-2">
+      No devices are registered. Register your first authenticator to protect Hōzō.
+    </p>
+    <p class="text-slate-500 text-xs mb-4">
+      Before registering, set your <strong class="text-slate-300">RP ID</strong> to the hostname
+      you'll use to access Hōzō (e.g. <code>mymachine.tailnet.ts.net</code> for Tailscale,
+      or <code>localhost</code> for local dev). This must match the address in your browser.
+    </p>
+    <div class="text-left mb-6">
+      <label class="text-xs text-slate-400 block mb-1">RP ID (hostname only — no https://)</label>
+      <input id="rp-id-input" type="text" value="{{ rp_id }}"
+             placeholder="localhost or mymachine.tailnet.ts.net"
+             class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-blue-400"/>
+      <button id="btn-save-rp" class="mt-2 text-xs text-blue-400 underline cursor-pointer bg-transparent border-0">
+        Save RP ID before registering →
+      </button>
+    </div>
+    {% else %}
+    <p class="text-slate-400 text-sm mb-6">
+      Add a new passkey or security key. You can register multiple devices
+      (e.g. laptop + YubiKey backup).
+    </p>
+    {% endif %}
+
+    <div class="text-left mb-4">
+      <label class="text-xs text-slate-400 block mb-1">Device name (optional)</label>
+      <input id="device-name" type="text" placeholder="e.g. MacBook Touch ID"
+             class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-blue-400"/>
+    </div>
+
+    <button id="btn-register"
+            class="btn-primary w-full py-3 rounded text-white font-semibold text-sm cursor-pointer">
+      🔐 Register This Device
+    </button>
+    <div id="reg-error" class="text-red-400 text-sm mt-4 hidden"></div>
+    <div id="reg-ok" class="badge-ok text-sm rounded p-2 mt-4 hidden">
+      ✓ Registered! Redirecting…
+    </div>
+  </div>
+</div>
+
+<script>
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+function b64urlDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr.buffer;
+}
+
+{% if is_bootstrap %}
+document.getElementById('btn-save-rp').addEventListener('click', async () => {
+  const rpId = document.getElementById('rp-id-input').value.trim();
+  if (!rpId) return;
+  const form = new FormData();
+  form.append('rp_id', rpId);
+  form.append('ssh_timeout', '120');
+  form.append('ssh_user', 'root');
+  await fetch('/settings', { method: 'POST', body: form });
+  document.getElementById('btn-save-rp').textContent = '✓ Saved';
+});
+{% endif %}
+
+document.getElementById('btn-register').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-register');
+  const err = document.getElementById('reg-error');
+  const ok = document.getElementById('reg-ok');
+  const deviceName = document.getElementById('device-name').value.trim() || 'Device';
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Waiting for authenticator…';
+  err.classList.add('hidden');
+  ok.classList.add('hidden');
+
+  try {
+    const optRes = await fetch('/auth/register/begin', { method: 'POST' });
+    if (!optRes.ok) throw new Error(await optRes.text());
+    const opts = await optRes.json();
+
+    opts.challenge = b64urlDecode(opts.challenge);
+    opts.user.id = b64urlDecode(opts.user.id);
+    if (opts.excludeCredentials) {
+      opts.excludeCredentials = opts.excludeCredentials.map(c => ({
+        ...c, id: b64urlDecode(c.id)
+      }));
+    }
+
+    const cred = await navigator.credentials.create({ publicKey: opts });
+
+    const body = JSON.stringify({
+      id: cred.id,
+      rawId: b64url(cred.rawId),
+      type: cred.type,
+      response: {
+        clientDataJSON: b64url(cred.response.clientDataJSON),
+        attestationObject: b64url(cred.response.attestationObject),
+      }
+    });
+
+    const verRes = await fetch('/auth/register/complete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Device-Name': deviceName,
+      },
+      body,
+    });
+    if (!verRes.ok) {
+      const e = await verRes.json();
+      throw new Error(e.error || 'Registration failed');
+    }
+
+    ok.classList.remove('hidden');
+    setTimeout(() => { window.location.href = '/'; }, 1200);
+  } catch (e) {
+    err.textContent = e.message || String(e);
+    err.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = '🔐 Register This Device';
+  }
+});
+</script>
+{% endblock %}

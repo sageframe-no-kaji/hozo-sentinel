@@ -38,6 +38,9 @@ class BackupJob:
     # When set, Hōzō will wait for the drive to spin up before starting syncoid.
     backup_device: Optional[str] = None
     disk_spinup_timeout: int = 90  # seconds
+    # Schedule string as stored in config ("weekly Sunday 03:00" / "daily 02:00").
+    # Stored here so the UI can round-trip it without re-parsing APScheduler state.
+    schedule: str = ""
 
 
 @dataclass

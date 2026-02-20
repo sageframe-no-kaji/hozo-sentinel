@@ -121,6 +121,7 @@ def jobs_from_config(config: dict[str, Any]) -> list[BackupJob]:
                 description=raw.get("description", ""),
                 backup_device=raw.get("backup_device"),
                 disk_spinup_timeout=int(raw.get("disk_spinup_timeout", 90)),
+                schedule=raw.get("schedule", ""),
             )
         )
     return jobs

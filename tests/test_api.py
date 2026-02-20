@@ -104,3 +104,126 @@ class TestResultsEndpoint:
     def test_no_result_returns_404(self, client: TestClient) -> None:
         resp = client.get("/results/weekly")
         assert resp.status_code == 404
+
+
+class TestSettingsRoutes:
+    def test_get_settings_returns_html(self, client: TestClient) -> None:
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert "Settings" in resp.text
+
+    def test_post_settings_redirects(self, client: TestClient) -> None:
+        resp = client.post(
+            "/settings",
+            data={"ssh_timeout": "90", "ssh_user": "backup"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("/settings")
+
+    def test_post_settings_updates_state(self, client: TestClient) -> None:
+        client.post("/settings", data={"ssh_timeout": "75", "ssh_user": "ops"})
+        assert client.app.state.settings["ssh_timeout"] == 75
+        assert client.app.state.settings["ssh_user"] == "ops"
+
+
+class TestJobCRUD:
+    def test_get_new_job_returns_html(self, client: TestClient) -> None:
+        resp = client.get("/jobs/new")
+        assert resp.status_code == 200
+        assert "New Job" in resp.text
+
+    def test_create_job(self, client: TestClient) -> None:
+        before = len(client.app.state.jobs)
+        resp = client.post(
+            "/jobs/new",
+            data={
+                "name": "nightly",
+                "source_dataset": "rpool/critical",
+                "target_host": "backup.local",
+                "target_dataset": "backup/critical",
+                "mac_address": "11:22:33:44:55:66",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert len(client.app.state.jobs) == before + 1
+        names = [j.name for j in client.app.state.jobs]
+        assert "nightly" in names
+
+    def test_create_duplicate_name_redirects_with_error(self, client: TestClient) -> None:
+        resp = client.post(
+            "/jobs/new",
+            data={
+                "name": "weekly",  # already exists in fixture
+                "source_dataset": "rpool/x",
+                "target_host": "h",
+                "target_dataset": "b/x",
+                "mac_address": "AA:BB:CC:DD:EE:FF",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert "error=name" in resp.headers["location"]
+
+    def test_get_edit_returns_html(self, client: TestClient) -> None:
+        resp = client.get("/jobs/weekly/edit")
+        assert resp.status_code == 200
+        assert "weekly" in resp.text
+
+    def test_edit_nonexistent_redirects(self, client: TestClient) -> None:
+        resp = client.get("/jobs/ghost/edit", follow_redirects=False)
+        assert resp.status_code == 303
+
+    def test_edit_updates_job(self, client: TestClient) -> None:
+        resp = client.post(
+            "/jobs/weekly/edit",
+            data={
+                "name": "weekly",
+                "source_dataset": "rpool/updated",
+                "target_host": "backup2.local",
+                "target_dataset": "backup/updated",
+                "mac_address": "AA:BB:CC:DD:EE:FF",
+                "ssh_user": "root",
+                "ssh_port": "22",
+                "retries": "3",
+                "retry_delay": "60",
+                "ssh_timeout": "120",
+                "wol_broadcast": "255.255.255.255",
+                "disk_spinup_timeout": "90",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        job = next(j for j in client.app.state.jobs if j.name == "weekly")
+        assert job.source_dataset == "rpool/updated"
+
+    def test_delete_removes_job(self, client: TestClient) -> None:
+        before = len(client.app.state.jobs)
+        resp = client.post("/jobs/weekly/delete", follow_redirects=False)
+        assert resp.status_code == 303
+        assert len(client.app.state.jobs) == before - 1
+        assert all(j.name != "weekly" for j in client.app.state.jobs)
+
+
+class TestAuthPagesBootstrap:
+    """Auth pages in bootstrap mode (no credentials registered)."""
+
+    def test_login_page_shows_register_link(self, client: TestClient) -> None:
+        resp = client.get("/auth/login")
+        assert resp.status_code == 200
+        assert "/auth/register" in resp.text
+
+    def test_register_page_returns_html(self, client: TestClient) -> None:
+        resp = client.get("/auth/register")
+        assert resp.status_code == 200
+        assert "Register" in resp.text
+
+    def test_devices_page_returns_html(self, client: TestClient) -> None:
+        resp = client.get("/auth/devices")
+        assert resp.status_code == 200
+
+    def test_logout_clears_cookie(self, client: TestClient) -> None:
+        resp = client.post("/auth/logout", follow_redirects=False)
+        assert resp.status_code == 302

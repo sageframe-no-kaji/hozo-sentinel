@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Hōzō{% endblock %}
+{% block content %}
+<div class="flex items-center gap-4 mb-6">
+  <a href="/" class="text-slate-400 text-sm">← Back</a>
+  <h1 class="text-2xl font-bold">{{ title }}</h1>
+</div>
+
+{% if request.query_params.get('error') == 'name' %}
+<div class="badge-err text-sm rounded p-3 mb-4">
+  Job name is empty or already exists.
+</div>
+{% endif %}
+
+{% macro field(label, name, value='', type='text', placeholder='', required=False, hint='') %}
+  <div>
+    <label class="text-xs text-slate-400 block mb-1">
+      {{ label }}{% if required %} <span class="text-red-400">*</span>{% endif %}
+    </label>
+    <input type="{{ type }}" name="{{ name }}"
+           value="{{ value }}"
+           {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+           {% if required %}required{% endif %}
+           class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400"/>
+    {% if hint %}<p class="text-slate-600 text-xs mt-1">{{ hint }}</p>{% endif %}
+  </div>
+{% endmacro %}
+
+{% macro checkbox(label, name, checked=False, hint='') %}
+  <div class="flex items-center gap-2">
+    <input type="checkbox" name="{{ name }}" id="{{ name }}"
+           {% if checked %}checked{% endif %}
+           class="accent-blue-500"/>
+    <label for="{{ name }}" class="text-sm text-slate-300">{{ label }}</label>
+  </div>
+  {% if hint %}<p class="text-slate-600 text-xs mt-0.5 ml-5">{{ hint }}</p>{% endif %}
+{% endmacro %}
+
+<form method="post" action="{{ action }}" class="space-y-6">
+
+  <!-- Core -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-4 text-sm uppercase tracking-wide">Job</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">Job name <span class="text-red-400">*</span></label>
+        <input type="text" name="name"
+               value="{{ job.name if job else '' }}"
+               {% if job %}readonly{% endif %}
+               placeholder="weekly"
+               required
+               class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm
+                      {% if job %}opacity-60 cursor-not-allowed{% endif %}
+                      focus:outline-none focus:border-blue-400"/>
+        {% if job %}
+        <p class="text-slate-600 text-xs mt-1">Name can't be changed after creation.</p>
+        {% endif %}
+      </div>
+      {{ field('Description', 'description', job.description if job else '', placeholder='e.g. Weekly backup of home data') }}
+    </div>
+  </div>
+
+  <!-- Source / Target -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-4 text-sm uppercase tracking-wide">Source &amp; Target</h2>
+    <div class="grid grid-cols-2 gap-4">
+      {{ field('Source ZFS dataset', 'source_dataset', job.source_dataset if job else '',
+               placeholder='rpool/data', required=True) }}
+      {{ field('Target host', 'target_host', job.target_host if job else '',
+               placeholder='backup-box.tailnet.ts.net', required=True) }}
+      {{ field('Target ZFS dataset', 'target_dataset', job.target_dataset if job else '',
+               placeholder='backup/home-data', required=True) }}
+      {{ field('MAC address (Wake-on-LAN)', 'mac_address', job.mac_address if job else '',
+               placeholder='AA:BB:CC:DD:EE:FF', required=True) }}
+    </div>
+  </div>
+
+  <!-- Schedule -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-4 text-sm uppercase tracking-wide">Schedule</h2>
+    {{ field('Schedule', 'schedule', job.schedule if job else '',
+             placeholder='weekly Sunday 03:00  or  daily 02:30',
+             hint='Leave blank for manual-only jobs. Format: "weekly <Day> HH:MM" or "daily HH:MM" (UTC).') }}
+  </div>
+
+  <!-- SSH -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-4 text-sm uppercase tracking-wide">SSH</h2>
+    <div class="grid grid-cols-3 gap-4">
+      {{ field('SSH user', 'ssh_user', job.ssh_user if job else 'root') }}
+      {{ field('SSH port', 'ssh_port', job.ssh_port if job else 22, type='number') }}
+      {{ field('SSH key path', 'ssh_key', job.ssh_key if job else '',
+               placeholder='~/.ssh/id_ed25519  (leave blank for agent)',
+               hint='Path on the machine running Hōzō.') }}
+    </div>
+  </div>
+
+  <!-- Behaviour -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-4 text-sm uppercase tracking-wide">Behaviour</h2>
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      {{ field('SSH wait timeout (s)', 'ssh_timeout', job.timeout if job else 120, type='number') }}
+      {{ field('Retries', 'retries', job.retries if job else 3, type='number') }}
+      {{ field('Retry delay (s)', 'retry_delay', job.retry_delay if job else 60, type='number') }}
+      {{ field('WOL broadcast IP', 'wol_broadcast', job.wol_broadcast if job else '255.255.255.255') }}
+    </div>
+    <div class="space-y-2">
+      {{ checkbox('Recursive (replicate child datasets)', 'recursive', job.recursive if job else True) }}
+      {{ checkbox('Shutdown remote host after backup', 'shutdown_after', job.shutdown_after if job else True) }}
+      {{ checkbox('No privilege elevation (skip sudo on syncoid)', 'no_privilege_elevation',
+                  job.no_privilege_elevation if job else False) }}
+    </div>
+  </div>
+
+  <!-- Drive spin-up (NUC / mini-PC) -->
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-300 mb-1 text-sm uppercase tracking-wide">Drive Spin-Up</h2>
+    <p class="text-slate-500 text-xs mb-4">
+      For NUC / mini-PC backup targets with an external USB or SATA drive that
+      spins down when idle. Hōzō will issue a read-kick and wait before syncing.
+    </p>
+    <div class="grid grid-cols-2 gap-4">
+      {{ field('Backup drive device', 'backup_device',
+               job.backup_device if (job and job.backup_device) else '',
+               placeholder='/dev/sdb  (leave blank if not applicable)',
+               hint='Block device path on the remote backup machine.') }}
+      {{ field('Spin-up timeout (s)', 'disk_spinup_timeout',
+               job.disk_spinup_timeout if job else 90, type='number') }}
+    </div>
+  </div>
+
+  <div class="flex gap-3">
+    <button type="submit"
+            class="btn-primary px-6 py-2.5 rounded text-white text-sm font-semibold cursor-pointer">
+      {% if job %}Save Changes{% else %}Create Job{% endif %}
+    </button>
+    <a href="/" class="text-slate-400 text-sm px-4 py-2.5">Cancel</a>
+  </div>
+
+</form>
+{% endblock %}

@@ -27,15 +27,34 @@
 </head>
 <body class="min-h-screen font-mono">
   <nav class="border-b border-slate-700 px-6 py-4 flex items-center gap-4">
-    <span class="text-2xl">🏯</span>
-    <span class="text-xl font-bold tracking-wide">Hōzō</span>
-    <span class="text-slate-500 text-sm">ZFS Backup Orchestrator</span>
-    {% if scheduler_running is defined %}
-    <span class="ml-auto text-xs px-2 py-1 rounded
-      {% if scheduler_running %}badge-ok{% else %}badge-nil{% endif %}">
-      {% if scheduler_running %}● Scheduler running{% else %}○ No scheduler{% endif %}
-    </span>
-    {% endif %}
+    <a href="/" class="flex items-center gap-2 no-underline">
+      <span class="text-2xl">🏯</span>
+      <span class="text-xl font-bold tracking-wide text-slate-100">Hōzō</span>
+    </a>
+    <span class="text-slate-600 text-sm hidden sm:inline">ZFS Backup Orchestrator</span>
+
+    <div class="ml-auto flex items-center gap-3">
+      {% if scheduler_running is defined %}
+      <span class="text-xs px-2 py-1 rounded
+        {% if scheduler_running %}badge-ok{% else %}badge-nil{% endif %}">
+        {% if scheduler_running %}● Scheduler running{% else %}○ No scheduler{% endif %}
+      </span>
+      {% endif %}
+
+      <a href="/settings" class="text-slate-400 hover:text-slate-200 text-xs">Settings</a>
+      <a href="/auth/devices" class="text-slate-400 hover:text-slate-200 text-xs">Devices</a>
+
+      {% if is_authenticated is defined and is_authenticated %}
+      <form method="post" action="/auth/logout" class="inline">
+        <button type="submit"
+                class="text-slate-500 hover:text-slate-300 text-xs cursor-pointer bg-transparent border-0">
+          Log out
+        </button>
+      </form>
+      {% elif credentials_exist is defined and credentials_exist %}
+      <a href="/auth/login" class="text-blue-400 text-xs">Log in</a>
+      {% endif %}
+    </div>
   </nav>
   <main class="max-w-5xl mx-auto px-6 py-8">
     {% block content %}{% endblock %}

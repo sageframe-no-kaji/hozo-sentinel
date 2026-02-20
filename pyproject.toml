@@ -34,6 +34,8 @@ dependencies = [
     "apscheduler>=3.10.0",
     "pydantic>=2.0.0",
     "python-multipart>=0.0.9",
+    "webauthn>=2.2.0",
+    "itsdangerous>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -55,8 +57,8 @@ hozo = "hozo.cli:main"
 backupd = "backupd.server:run"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/hozo"
-Repository = "https://github.com/yourusername/hozo"
+Homepage = "https://github.com/sageframe-no-kaji/hozo-sentinel"
+Repository = "https://github.com/sageframe-no-kaji/hozo-sentinel"
 
 # ============================================
 # Tool Configuration
