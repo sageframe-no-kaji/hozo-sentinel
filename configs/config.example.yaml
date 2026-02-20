@@ -1,0 +1,99 @@
+# Hōzō Configuration Example
+# ─────────────────────────────────────────────────────────────
+# Copy this to config.yaml and customize for your setup.
+# Then run:   hozo --config config.yaml jobs list
+# ─────────────────────────────────────────────────────────────
+
+# ── Global settings ──────────────────────────────────────────
+settings:
+  # Default SSH wait timeout in seconds (overridable per job)
+  ssh_timeout: 120
+
+  # Default SSH user (overridable per job)
+  ssh_user: root
+
+  # Notification channels — remove sections you don't need
+  notifications:
+    # ntfy.sh — free, self-hostable push notifications
+    # Subscribe on Android/iOS or via web at https://ntfy.sh/<topic>
+    ntfy_topic: hozo-backups
+
+    # Pushover — optional paid push notification service
+    # pushover_token: tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    # pushover_user: uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+    # Email / SMTP
+    # smtp:
+    #   host: smtp.example.com
+    #   port: 587
+    #   user: hozo@example.com
+    #   password: app-password-here
+    #   from_addr: hozo@example.com
+    #   to_addr: admin@example.com
+    #   use_tls: true
+
+
+# ── Backup jobs ───────────────────────────────────────────────
+jobs:
+
+  # Job 1: Weekly full backup to off-site box
+  - name: weekly_full
+    description: "Weekly backup of home data to parents' house"
+
+    # Source: local ZFS dataset to replicate
+    source: rpool/data
+
+    # Target: remote host (Tailscale hostname recommended for reliability)
+    target_host: backup-box.tailnet.ts.net
+
+    # Target dataset on the remote host
+    target_dataset: backup/home-data
+
+    # MAC address of the remote box's NIC (for Wake-on-LAN)
+    mac_address: "AA:BB:CC:DD:EE:FF"
+
+    # Optional: SSH key to use (default: ~/.ssh/id_ed25519 or ssh-agent)
+    # ssh_key: ~/.ssh/hozo_ed25519
+
+    # Include child datasets? (zfs send -R equivalent)
+    recursive: true
+
+    # Shut down the remote box when done?
+    shutdown_after: true
+
+    # Retry failed syncoid runs this many times
+    retries: 3
+
+    # Seconds to wait between retries
+    retry_delay: 60
+
+    # Cron-like schedule:
+    #   "daily HH:MM"        → every day at HH:MM UTC
+    #   "weekly <Day> HH:MM" → once a week at HH:MM UTC
+    schedule: "weekly Sunday 03:00"
+
+
+  # Job 2: Nightly backup of critical data only
+  - name: nightly_critical
+    description: "Nightly backup of critical config and secrets"
+    source: rpool/critical
+    target_host: backup-box.tailnet.ts.net
+    target_dataset: backup/critical
+    mac_address: "AA:BB:CC:DD:EE:FF"
+    recursive: false
+    shutdown_after: true
+    retries: 2
+    retry_delay: 30
+    schedule: "daily 02:00"
+
+
+  # Job 3: Manual-only job (no schedule)
+  - name: manual_archive
+    description: "Manual archival — triggered via CLI or web UI only"
+    source: rpool/photos
+    target_host: backup-box.tailnet.ts.net
+    target_dataset: backup/photos
+    mac_address: "AA:BB:CC:DD:EE:FF"
+    recursive: true
+    shutdown_after: false
+    # No schedule → only runs when manually triggered

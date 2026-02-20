@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Hōzō{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"
+          integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2uodhRgS0p9cBlnqFXpwLFpZmw4REFnLDoC"
+          crossorigin="anonymous"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; }
+    .badge-ok  { background: #166534; color: #bbf7d0; }
+    .badge-err { background: #7f1d1d; color: #fecaca; }
+    .badge-nil { background: #374151; color: #9ca3af; }
+    .btn-primary { background:#3b82f6; }
+    .btn-primary:hover { background:#2563eb; }
+    .btn-warn { background:#f59e0b; }
+    .btn-warn:hover { background:#d97706; }
+    .btn-danger { background:#ef4444; }
+    .btn-danger:hover { background:#dc2626; }
+    .htmx-indicator { opacity:0; transition: opacity 0.2s; }
+    .htmx-request .htmx-indicator { opacity:1; }
+    .htmx-request.htmx-indicator { opacity:1; }
+  </style>
+</head>
+<body class="min-h-screen font-mono">
+  <nav class="border-b border-slate-700 px-6 py-4 flex items-center gap-4">
+    <span class="text-2xl">🏯</span>
+    <span class="text-xl font-bold tracking-wide">Hōzō</span>
+    <span class="text-slate-500 text-sm">ZFS Backup Orchestrator</span>
+    {% if scheduler_running is defined %}
+    <span class="ml-auto text-xs px-2 py-1 rounded
+      {% if scheduler_running %}badge-ok{% else %}badge-nil{% endif %}">
+      {% if scheduler_running %}● Scheduler running{% else %}○ No scheduler{% endif %}
+    </span>
+    {% endif %}
+  </nav>
+  <main class="max-w-5xl mx-auto px-6 py-8">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="text-center text-slate-600 text-xs py-6">
+    Hōzō v0.1.0 · 宝蔵
+  </footer>
+</body>
+</html>

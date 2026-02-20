@@ -1,0 +1,48 @@
+{% for job in jobs %}
+<div class="card p-5 mb-4">
+  <div class="flex items-start justify-between mb-3">
+    <div>
+      <h2 class="text-lg font-semibold">{{ job.name }}</h2>
+      {% if job.description %}<p class="text-slate-400 text-sm mt-0.5">{{ job.description }}</p>{% endif %}
+    </div>
+    <span class="text-xs px-2 py-1 rounded
+      {% if job.last_result %}
+        {% if job.last_result.success %}badge-ok{% else %}badge-err{% endif %}
+      {% else %}badge-nil{% endif %}">
+      {% if job.last_result %}
+        {% if job.last_result.success %}✓ OK{% else %}✗ Failed{% endif %}
+      {% else %}— No runs yet{% endif %}
+    </span>
+  </div>
+  <div class="grid grid-cols-2 gap-2 text-sm text-slate-300 mb-4">
+    <div><span class="text-slate-500">Source:</span> {{ job.source }}</div>
+    <div><span class="text-slate-500">Target:</span> {{ job.target_host }}:{{ job.target_dataset }}</div>
+    {% if job.last_result %}
+    <div><span class="text-slate-500">Last run:</span> {{ job.last_result.started_at.strftime('%Y-%m-%d %H:%M') }}</div>
+    <div><span class="text-slate-500">Duration:</span>
+      {% if job.last_result.duration_seconds %}{{ "%.1f"|format(job.last_result.duration_seconds) }}s{% else %}—{% endif %}
+    </div>
+    <div><span class="text-slate-500">Snapshots:</span> {{ job.last_result.snapshots_after|length }}</div>
+    {% if job.last_result.error %}
+    <div class="col-span-2 text-red-400 text-xs mt-1">{{ job.last_result.error }}</div>
+    {% endif %}
+    {% endif %}
+  </div>
+  <div class="flex gap-2 flex-wrap">
+    <button class="btn-warn text-xs px-3 py-1.5 rounded cursor-pointer text-white"
+            hx-post="/wake" hx-vals='{"job_name": "{{ job.name }}"}' hx-target="#toast" hx-swap="innerHTML">
+      ⚡ Wake
+    </button>
+    <button class="btn-primary text-xs px-3 py-1.5 rounded cursor-pointer text-white"
+            hx-post="/run_backup" hx-vals='{"job_name": "{{ job.name }}"}' hx-target="#toast" hx-swap="innerHTML">
+      ▶ Run Backup
+    </button>
+    <button class="btn-danger text-xs px-3 py-1.5 rounded cursor-pointer text-white"
+            hx-post="/shutdown" hx-vals='{"job_name": "{{ job.name }}"}' hx-target="#toast" hx-swap="innerHTML">
+      ⏻ Shutdown
+    </button>
+  </div>
+</div>
+{% else %}
+<div class="card p-8 text-center text-slate-500">No jobs configured.</div>
+{% endfor %}

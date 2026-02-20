@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  hozo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hozo
+    restart: unless-stopped
+
+    # WOL requires NET_ADMIN + network_mode: host (or at least bridge with broadcast)
+    # For Tailscale-based setups, host networking is simplest.
+    network_mode: host
+
+    # Cap needed to send WOL broadcast packets and Tailscale tun interface
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    environment:
+      HOZO_CONFIG: /etc/hozo/config.yaml
+      # Optional: Tailscale auth key for automatic VPN join
+      # TAILSCALE_AUTHKEY: tskey-auth-xxxxx
+
+    volumes:
+      # Mount your real config file here
+      - ./configs/config.yaml:/etc/hozo/config.yaml:ro
+      # Persist logs
+      - hozo_logs:/var/log/hozo
+      # SSH key for connecting to the remote backup box (read-only)
+      - ${HOME}/.ssh:/root/.ssh:ro
+
+    ports:
+      # Only needed if NOT using host networking
+      # - "8000:8000"
+      []
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  hozo_logs:
