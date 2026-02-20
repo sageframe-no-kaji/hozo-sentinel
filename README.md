@@ -2,6 +2,8 @@
 
 **Treasure Storehouse** — A wake-on-demand ZFS backup orchestrator.
 
+Hōzō runs **entirely on your local/controller machine** (the one with the source ZFS pool). It uses [`syncoid`](https://github.com/jimsalterjrs/sanoid) — which must be installed locally — to push ZFS snapshots to a remote backup box over SSH. **No agent is required on the remote machine** — it only needs ZFS, SSH, and a user with appropriate ZFS permissions.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
@@ -27,29 +29,34 @@ Hōzō automates off-site ZFS backups to a sleeping remote machine:
 
 ```
 ╔══════════════════════════════════════════════════════╗
-║           MAIN SERVER (Docker container)             ║
-║  hozo orchestrator:                                  ║
-║    • Read job config (YAML)                          ║
-║    • Send Wake-on-LAN magic packet                   ║
-║    • Wait for SSH availability                       ║
-║    • Run syncoid (ZFS replication)                   ║
-║    • Verify snapshots                                ║
-║    • Notify (ntfy / Pushover / email)                ║
-║    • SSH: shutdown remote                            ║
-║  Web UI: status dashboard, manual trigger            ║
+║  YOUR MACHINE  (source / controller)                 ║
+║                                                      ║
+║  hozo  ←──── runs HERE, not on the remote            ║
+║    • Reads job config (YAML)                         ║
+║    • Sends Wake-on-LAN magic packet                  ║
+║    • Waits for SSH to come up                        ║
+║    • Runs syncoid locally  ←── also installed here   ║
+║      syncoid pushes ZFS snapshots over SSH           ║
+║    • Verifies remote snapshots                       ║
+║    • Notifies (ntfy / Pushover / email)              ║
+║    • SSHes in to shut the remote down                ║
+║  Web UI: dashboard, manual trigger, log viewer       ║
 ╚══════════════════════════════════════════════════════╝
                      │
-      WOL packet + SSH (via Tailscale / VPN)
+            WoL + SSH (Tailscale recommended)
                      ▼
 ╔══════════════════════════════════════════════════════╗
-║     REMOTE BACKUP BOX  (NUC / mini-PC, sleeping)    ║
-║    • Wakes on WOL                                    ║
-║    • Tailscale auto-connects                         ║
-║    • SSH accepts syncoid connection                  ║
-║    • External USB/SATA HDD spun up by Hōzō          ║
-║    • ZFS receives incremental snapshot stream        ║
-║    • backupd agent: health, drive state, shutdown    ║
-║    • Powers down when done                          ║
+║  REMOTE BACKUP BOX  (NUC / mini-PC, normally off)   ║
+║                                                      ║
+║  No agent needed — only requires:                    ║
+║    • ZFS installed                                   ║
+║    • SSH enabled, key-based auth configured          ║
+║    • Wake-on-LAN enabled in BIOS                     ║
+║    • (Optional) Tailscale for secure remote access   ║
+║    • (Optional) external USB/SATA HDD                ║
+║                                                      ║
+║  Receives incremental ZFS snapshots via SSH          ║
+║  Powers down when backup is complete                 ║
 ╚══════════════════════════════════════════════════════╝
           │
    USB / eSATA

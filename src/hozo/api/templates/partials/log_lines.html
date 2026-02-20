@@ -1,0 +1,7 @@
+{% if log_lines %}
+  {% for line in log_lines %}
+  <div class="{% if 'ERROR' in line %}text-red-400{% elif 'WARNING' in line %}text-yellow-400{% elif '[syncoid]' in line %}text-cyan-300{% else %}text-slate-300{% endif %}">{{ line }}</div>
+  {% endfor %}
+{% else %}
+  <span class="text-slate-600">No log output captured yet.</span>
+{% endif %}

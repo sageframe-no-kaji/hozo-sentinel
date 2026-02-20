@@ -446,6 +446,26 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
             return JSONResponse({"error": f"No result found for job '{job_name}'"}, status_code=404)
         return JSONResponse(_result_to_response(result).model_dump())
 
+    # ── Job log viewer ────────────────────────────────────────────────────────
+
+    @app.get("/jobs/{job_name}/log", response_class=HTMLResponse)
+    async def get_job_log(request: Request, job_name: str) -> HTMLResponse:
+        result = app.state.last_results.get(job_name)
+        log_lines = list(result.log_lines) if result else []
+        return _tpl(
+            request,
+            "job_log.html",
+            {"job_name": job_name, "result": result, "log_lines": log_lines},
+        )
+
+    @app.get("/jobs/{job_name}/log/lines", response_class=HTMLResponse)
+    async def get_job_log_lines(request: Request, job_name: str) -> HTMLResponse:
+        result = app.state.last_results.get(job_name)
+        log_lines = list(result.log_lines) if result else []
+        return templates.TemplateResponse(
+            request, "partials/log_lines.html", {"log_lines": log_lines}
+        )
+
     # ── Auth: login ───────────────────────────────────────────────────────────
 
     @app.get("/auth/login", response_class=HTMLResponse)

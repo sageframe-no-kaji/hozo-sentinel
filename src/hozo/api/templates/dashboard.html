@@ -73,6 +73,10 @@
          class="text-xs px-3 py-1.5 rounded text-slate-300 border border-slate-600 hover:border-slate-400">
         ✏ Edit
       </a>
+      <a href="/jobs/{{ job.name }}/log"
+         class="text-xs px-3 py-1.5 rounded text-slate-300 border border-slate-600 hover:border-slate-400">
+        📋 Log
+      </a>
       <form method="post" action="/jobs/{{ job.name }}/delete"
             onsubmit="return confirm('Delete job {{ job.name }}? This cannot be undone.')">
         <button type="submit"

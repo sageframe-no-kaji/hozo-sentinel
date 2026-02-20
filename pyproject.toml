@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hozo"
 version = "0.1.0"
-description = "Wake-on-demand ZFS backup orchestrator"
+description = "ZFS backup orchestrator — runs syncoid locally, wakes remote over WoL, no remote agent needed"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

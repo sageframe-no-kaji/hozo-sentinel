@@ -63,7 +63,7 @@ class TestRunJob:
         """Return a set of patches for a fully successful job run."""
         mock_wake = MagicMock(return_value=True)
         mock_wait = MagicMock(return_value=True)
-        mock_syncoid = MagicMock(return_value=True)
+        mock_syncoid = MagicMock(return_value=(True, ""))
         mock_snapshots = MagicMock(return_value=["backup/data@2024-01-01"])
         mock_run_cmd = MagicMock(return_value=(0, "", ""))
         return mock_wake, mock_wait, mock_syncoid, mock_snapshots, mock_run_cmd
@@ -85,7 +85,7 @@ class TestRunJob:
     ) -> None:
         mock_wake.return_value = True
         mock_wait.return_value = True
-        mock_syncoid.return_value = True
+        mock_syncoid.return_value = (True, "")
         mock_snapshots.return_value = ["backup/data@snap1"]
         mock_run_cmd.return_value = (0, "", "")
 
@@ -132,7 +132,7 @@ class TestRunJob:
     ) -> None:
         mock_wake.return_value = True
         mock_wait.return_value = True
-        mock_syncoid.return_value = True
+        mock_syncoid.return_value = (True, "")
         mock_snapshots.return_value = []
         mock_run_cmd.return_value = (0, "", "")
 
@@ -161,7 +161,7 @@ class TestRunJob:
     ) -> None:
         mock_wake.return_value = True
         mock_wait.return_value = True
-        mock_syncoid.return_value = True
+        mock_syncoid.return_value = (True, "")
         mock_snapshots.return_value = []
         mock_run_cmd.return_value = (0, "", "")
 

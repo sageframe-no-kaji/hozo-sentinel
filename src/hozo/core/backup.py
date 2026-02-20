@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 class SyncoidError(Exception):
     """Raised when syncoid exits with a non-zero status."""
 
-    def __init__(self, returncode: int, stderr: str) -> None:
+    def __init__(self, returncode: int, stderr: str, stdout: str = "") -> None:
         self.returncode = returncode
         self.stderr = stderr
+        self.stdout = stdout
         super().__init__(f"syncoid exited {returncode}: {stderr.strip()}")
 
 
@@ -27,7 +28,7 @@ def run_syncoid(
     no_privilege_elevation: bool = False,
     dry_run: bool = False,
     syncoid_bin: str = "syncoid",
-) -> bool:
+) -> tuple[bool, str]:
     """
     Run syncoid to replicate a ZFS dataset to a remote host.
 
@@ -72,22 +73,27 @@ def run_syncoid(
 
     if dry_run:
         logger.info("[DRY RUN] Would run: %s", shlex.join(cmd))
-        return True
+        return True, ""
 
     result = subprocess.run(
         cmd,
-        capture_output=False,
+        capture_output=True,
         text=True,
         timeout=3600,  # 1-hour hard timeout per job
     )
 
+    combined = (result.stdout or "") + (result.stderr or "")
+    for line in combined.splitlines():
+        if line.strip():
+            logger.debug("[syncoid] %s", line)
+
     if result.returncode != 0:
-        raise SyncoidError(result.returncode, result.stderr or "")
+        raise SyncoidError(result.returncode, result.stderr or "", result.stdout or "")
 
     logger.info(
         "Syncoid completed successfully for %s → %s:%s", source, target_host, target_dataset
     )
-    return True
+    return True, combined
 
 
 def list_remote_snapshots(

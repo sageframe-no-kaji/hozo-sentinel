@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Log — {{ job_name }} — Hōzō{% endblock %}
+{% block content %}
+<div class="flex items-center gap-4 mb-4">
+  <a href="/" class="text-slate-400 text-sm hover:text-slate-200">← Back</a>
+  <h1 class="text-xl font-bold">{{ job_name }}</h1>
+  {% if result %}
+    <span class="text-xs px-2 py-1 rounded
+      {% if result.success %}badge-ok{% else %}badge-err{% endif %}">
+      {% if result.success %}✓ OK{% else %}✗ Failed{% endif %}
+    </span>
+    {% if result.duration_seconds %}
+    <span class="text-xs text-slate-500">{{ "%.1f"|format(result.duration_seconds) }}s</span>
+    {% endif %}
+  {% else %}
+    <span class="text-xs px-2 py-1 rounded badge-nil">No run yet</span>
+  {% endif %}
+</div>
+
+{% if result and result.error %}
+<div class="badge-err text-xs rounded px-3 py-2 mb-4 font-mono">{{ result.error }}</div>
+{% endif %}
+
+<div id="log-box"
+     class="card p-4 font-mono text-xs leading-5 overflow-x-auto min-h-32"
+     {% if not result %}
+     hx-get="/jobs/{{ job_name }}/log/lines"
+     hx-trigger="every 3s"
+     hx-swap="innerHTML"
+     {% endif %}>
+  {% include "partials/log_lines.html" %}
+</div>
+
+{% if result %}
+<div class="mt-4 text-xs text-slate-500">
+  Started {{ result.started_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+  {% if result.finished_at %}· Finished {{ result.finished_at.strftime('%H:%M:%S UTC') }}{% endif %}
+  · {{ result.attempts }} attempt(s)
+  {% if result.snapshots_after %}· {{ result.snapshots_after|length }} snapshot(s) on remote{% endif %}
+</div>
+{% else %}
+<div class="mt-3 text-xs text-slate-500">
+  ⏳ Waiting for first run… (refreshing every 3s)
+</div>
+{% endif %}
+{% endblock %}

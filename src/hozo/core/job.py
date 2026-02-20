@@ -54,6 +54,7 @@ class JobResult:
     error: Optional[str] = None
     snapshots_after: list[str] = field(default_factory=list)
     attempts: int = 1
+    log_lines: list[str] = field(default_factory=list)
 
     @property
     def duration_seconds(self) -> Optional[float]:
@@ -78,12 +79,38 @@ def run_job(job: BackupJob) -> JobResult:
         job: Backup job configuration
 
     Returns:
-        JobResult with success status and details
+        JobResult with success status, details, and captured log lines
     """
     started_at = datetime.now(timezone.utc)
-    logger.info("=== Starting job: %s ===", job.name)
 
+    # Per-job in-memory log capture
+    log_lines: list[str] = []
+
+    class _ListHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%H:%M:%S")
+            log_lines.append(f"[{ts}] {record.levelname:7s} {record.getMessage()}")
+
+    _handler = _ListHandler(level=logging.DEBUG)
+    _root = logging.getLogger("hozo")
+    _root.addHandler(_handler)
+
+    def _log(msg: str, level: int = logging.INFO) -> None:
+        logger.log(level, msg)
+
+    try:
+        return _run_job_inner(job, started_at, log_lines)
+    finally:
+        _root.removeHandler(_handler)
+
+
+def _run_job_inner(
+    job: BackupJob,
+    started_at: datetime,
+    log_lines: list[str],
+) -> JobResult:
     # ── Step 1: Wake remote ──────────────────────────────────────────────────
+    logger.info("=== Starting job: %s ===", job.name)
     logger.info("[%s] Sending WOL packet → MAC %s", job.name, job.mac_address)
     wake(job.mac_address, ip_address=job.wol_broadcast)
 
@@ -102,6 +129,7 @@ def run_job(job: BackupJob) -> JobResult:
             started_at=started_at,
             finished_at=datetime.now(timezone.utc),
             error=err,
+            log_lines=log_lines,
         )
 
     # ── Step 2.5: Ensure backup drive is spun up ────────────────────────────
@@ -132,6 +160,7 @@ def run_job(job: BackupJob) -> JobResult:
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
                 error=err,
+                log_lines=log_lines,
             )
 
     # ── Step 3: Run syncoid (with retries) ───────────────────────────────────
@@ -139,7 +168,7 @@ def run_job(job: BackupJob) -> JobResult:
     for attempt in range(1, job.retries + 1):
         logger.info("[%s] Syncoid attempt %d/%d", job.name, attempt, job.retries)
         try:
-            run_syncoid(
+            _, syncoid_output = run_syncoid(
                 source_dataset=job.source_dataset,
                 target_host=job.target_host,
                 target_dataset=job.target_dataset,
@@ -148,9 +177,23 @@ def run_job(job: BackupJob) -> JobResult:
                 ssh_key=job.ssh_key,
                 no_privilege_elevation=job.no_privilege_elevation,
             )
+            if syncoid_output:
+                for line in syncoid_output.splitlines():
+                    if line.strip():
+                        log_lines.append(f"[syncoid] {line}")
             last_error = None
             break  # success
-        except (SyncoidError, FileNotFoundError, Exception) as exc:
+        except SyncoidError as exc:
+            last_error = str(exc)
+            if exc.stdout or exc.stderr:
+                for line in (exc.stdout + exc.stderr).splitlines():
+                    if line.strip():
+                        log_lines.append(f"[syncoid] {line}")
+            logger.warning("[%s] Attempt %d failed: %s", job.name, attempt, exc)
+            if attempt < job.retries:
+                logger.info("[%s] Retrying in %ds…", job.name, job.retry_delay)
+                time.sleep(job.retry_delay)
+        except (FileNotFoundError, Exception) as exc:
             last_error = str(exc)
             logger.warning("[%s] Attempt %d failed: %s", job.name, attempt, exc)
             if attempt < job.retries:
@@ -170,6 +213,7 @@ def run_job(job: BackupJob) -> JobResult:
             finished_at=datetime.now(timezone.utc),
             error=last_error,
             attempts=job.retries,
+            log_lines=log_lines,
         )
 
     # ── Step 4: Verify remote snapshots ──────────────────────────────────────
@@ -191,6 +235,7 @@ def run_job(job: BackupJob) -> JobResult:
         finished_at=datetime.now(timezone.utc),
         snapshots_after=snapshots,
         attempts=attempt,  # type: ignore[possibly-undefined]
+        log_lines=log_lines,
     )
     logger.info(
         "=== Job %s complete in %.1fs — %d snapshot(s) on remote ===",

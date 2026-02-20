@@ -21,7 +21,7 @@ class TestRunSyncoid:
             target_dataset="backup/data",
         )
 
-        assert result is True
+        assert result[0] is True
         mock_run.assert_called_once()
 
     @patch("hozo.core.backup.subprocess.run")
@@ -59,7 +59,7 @@ class TestRunSyncoid:
         """Should not call subprocess when dry_run=True."""
         result = run_syncoid("rpool/data", "host", "backup/data", dry_run=True)
 
-        assert result is True
+        assert result[0] is True
         mock_run.assert_not_called()
 
     @patch("hozo.core.backup.subprocess.run")
