@@ -195,6 +195,12 @@ class TestRemoteDriveState:
         mock_cmd.return_value = (0, "hdparm_unavailable\n", "")
         assert remote_drive_state("backup.local", "/dev/sda") == "hdparm_unavailable"
 
+    @patch("hozo.core.disk.run_command")
+    def test_returns_unknown_when_no_keyword_found(self, mock_cmd: MagicMock) -> None:
+        """stdout has content but neither 'drive state is:' nor 'hdparm_unavailable' → 'unknown'."""
+        mock_cmd.return_value = (0, "some other output\n", "")
+        assert remote_drive_state("backup.local", "/dev/sda") == "unknown"
+
     @patch("hozo.core.disk.run_command", side_effect=Exception("connection refused"))
     def test_returns_unknown_on_ssh_failure(self, _: MagicMock) -> None:
         assert remote_drive_state("dead.host", "/dev/sda") == "unknown"

@@ -109,6 +109,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     app.state.auth = {}
     app.state.jobs = []
     app.state.last_results = {}
+    app.state.last_restore_results = {}
     app.state.scheduler = None
     app.state.pending_challenges = {}
 
@@ -444,7 +445,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         result = app.state.last_results.get(job_name)
         if not result:
             return JSONResponse({"error": f"No result found for job '{job_name}'"}, status_code=404)
-        return JSONResponse(_result_to_response(result).model_dump())
+        return JSONResponse(_result_to_response(result).model_dump(mode="json"))
 
     # ── Job log viewer ────────────────────────────────────────────────────────
 

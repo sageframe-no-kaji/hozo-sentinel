@@ -1,6 +1,9 @@
 """Tests for the YAML config writer."""
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from hozo.config.loader import load_config
 from hozo.config.writer import build_config_dict, job_to_raw, write_config
@@ -112,3 +115,27 @@ class TestBuildConfigDict:
         loaded = load_config(p)
         assert loaded is not None
         assert loaded["jobs"][0]["schedule"] == "daily 04:00"
+
+
+class TestWriteConfigException:
+    def test_exception_cleanup_removes_temp_file(self, tmp_path: Path) -> None:
+        """If yaml.dump raises the temp file is cleaned up and the exception re-raised."""
+        p = tmp_path / "config.yaml"
+        with patch("hozo.config.writer.yaml.dump", side_effect=RuntimeError("disk full")):
+            with pytest.raises(RuntimeError, match="disk full"):
+                write_config(p, {"jobs": []})
+
+        # The .tmp file must NOT be left behind
+        tmp_file = p.parent / (p.name + ".tmp")
+        assert not tmp_file.exists()
+
+    def test_original_file_unchanged_on_error(self, tmp_path: Path) -> None:
+        """If write fails, any pre-existing file is not overwritten."""
+        p = tmp_path / "config.yaml"
+        p.write_text("original: data")
+
+        with patch("hozo.config.writer.yaml.dump", side_effect=IOError("no space")):
+            with pytest.raises(IOError):
+                write_config(p, {"jobs": []})
+
+        assert p.read_text() == "original: data"

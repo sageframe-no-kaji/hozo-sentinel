@@ -266,3 +266,128 @@ class TestSchedulerIntegration:
 
         assert not fired_after_stop.is_set(), "Job fired after scheduler was stopped"
         assert call_count >= 1, "Job should have fired at least once before stop"
+
+
+# ── Additional coverage ───────────────────────────────────────────────────────
+
+
+class TestSchedulerEdgeCases:
+    """Cover branches missed by the main tests."""
+
+    def _write_config(self, tmp_path: Path, jobs: list) -> Path:
+        path = tmp_path / "config.yaml"
+        path.write_text(yaml.dump({"jobs": jobs}))
+        return path
+
+    def test_load_empty_config_returns_zero(self, tmp_path: Path) -> None:
+        """Empty YAML file → load_jobs_from_config returns 0."""
+        path = tmp_path / "empty.yaml"
+        path.write_text("")
+        scheduler = HozoScheduler()
+        count = scheduler.load_jobs_from_config(path)
+        assert count == 0
+
+    def test_invalid_schedule_logs_error_and_continues(self, tmp_path: Path) -> None:
+        """A job with an unparseable schedule is silently skipped (not registered)."""
+        path = self._write_config(
+            tmp_path,
+            [
+                {
+                    "name": "bad_sched",
+                    "source": "rpool/data",
+                    "target_host": "host",
+                    "target_dataset": "backup/data",
+                    "mac_address": "AA:BB:CC:DD:EE:FF",
+                    "schedule": "every tuesday at noon",
+                }
+            ],
+        )
+        scheduler = HozoScheduler()
+        count = scheduler.load_jobs_from_config(path)
+        assert count == 0           # not registered with APScheduler
+        assert len(scheduler.jobs) == 1  # but job object IS in the list
+
+    @patch("hozo.scheduler.runner.run_job")
+    def test_on_result_callback_exception_is_swallowed(
+        self, mock_run_job: MagicMock, tmp_path: Path
+    ) -> None:
+        """If on_result raises, the wrapper must not propagate the exception."""
+        fake_result = JobResult(
+            job_name="weekly",
+            success=True,
+            started_at=datetime.now(timezone.utc),
+        )
+        mock_run_job.return_value = fake_result
+
+        def bad_callback(r: JobResult) -> None:
+            raise RuntimeError("callback crashed")
+
+        scheduler = HozoScheduler(on_result=bad_callback)
+        path = self._write_config(
+            tmp_path,
+            [
+                {
+                    "name": "weekly",
+                    "source": "rpool/data",
+                    "target_host": "host",
+                    "target_dataset": "backup/data",
+                    "mac_address": "AA:BB:CC:DD:EE:FF",
+                    "schedule": "daily 03:00",
+                }
+            ],
+        )
+        scheduler.load_jobs_from_config(path)
+        # Must not raise even though callback raises
+        scheduler._run_job_wrapper(scheduler.jobs[0])
+
+    def test_run_job_now_unknown_name_returns_none(self, tmp_path: Path) -> None:
+        """run_job_now for a nonexistent job returns None."""
+        path = self._write_config(
+            tmp_path,
+            [
+                {
+                    "name": "weekly",
+                    "source": "rpool/data",
+                    "target_host": "host",
+                    "target_dataset": "backup/data",
+                    "mac_address": "AA:BB:CC:DD:EE:FF",
+                    "schedule": "daily 03:00",
+                }
+            ],
+        )
+        scheduler = HozoScheduler()
+        scheduler.load_jobs_from_config(path)
+        result = scheduler.run_job_now("does_not_exist")
+        assert result is None
+
+    @patch("hozo.scheduler.runner.run_job")
+    def test_run_job_now_known_name_returns_result(
+        self, mock_run_job: MagicMock, tmp_path: Path
+    ) -> None:
+        """run_job_now with a valid name calls run_job and returns the result."""
+        fake_result = JobResult(
+            job_name="weekly",
+            success=True,
+            started_at=datetime.now(timezone.utc),
+        )
+        mock_run_job.return_value = fake_result
+
+        path = self._write_config(
+            tmp_path,
+            [
+                {
+                    "name": "weekly",
+                    "source": "rpool/data",
+                    "target_host": "host",
+                    "target_dataset": "backup/data",
+                    "mac_address": "AA:BB:CC:DD:EE:FF",
+                    "schedule": "daily 03:00",
+                }
+            ],
+        )
+        scheduler = HozoScheduler()
+        scheduler.load_jobs_from_config(path)
+        result = scheduler.run_job_now("weekly")
+        assert result is not None
+        assert result.job_name == "weekly"
+        mock_run_job.assert_called_once()

@@ -236,3 +236,266 @@ class TestRunRestoreJob:
         assert result.success is False
         assert result.error is not None
         assert "syncoid restore failed" in result.error
+
+
+# ── Additional coverage ───────────────────────────────────────────────────────
+
+
+class TestRunJobBackupDevice:
+    """Tests for the backup_device drive-spinup branch."""
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_command")
+    @patch("hozo.core.job.list_remote_snapshots")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_remote_drive_active")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_backup_device_drive_ready(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_drive: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_snapshots: MagicMock,
+        mock_cmd: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_drive.return_value = True
+        mock_syncoid.return_value = (True, "")
+        mock_snapshots.return_value = []
+        mock_cmd.return_value = (0, "", "")
+
+        job = _make_job(backup_device="/dev/sdb", disk_spinup_timeout=60)
+        result = run_job(job)
+
+        assert result.success is True
+        mock_drive.assert_called_once()
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.wait_for_remote_drive_active")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_backup_device_not_ready_returns_failure(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_drive: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_drive.return_value = False  # drive didn't spin up
+
+        job = _make_job(backup_device="/dev/sdb", disk_spinup_timeout=60)
+        result = run_job(job)
+
+        assert result.success is False
+        assert result.error is not None
+        assert "/dev/sdb" in result.error or "spin up" in result.error.lower() or "Drive" in result.error
+
+
+class TestRunJobGenericException:
+    """Generic Exception (e.g. FileNotFoundError) in the retry loop."""
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job._maybe_shutdown")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_file_not_found_exhausts_retries(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_shutdown: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_syncoid.side_effect = FileNotFoundError("syncoid not found in PATH")
+
+        job = _make_job(retries=2, retry_delay=0)
+        result = run_job(job)
+
+        assert result.success is False
+        assert result.error is not None
+        assert mock_syncoid.call_count == 2  # retried once
+
+
+class TestMaybeShutdownException:
+    """_maybe_shutdown exceptions are swallowed (machine already off)."""
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_command")
+    @patch("hozo.core.job.list_remote_snapshots")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_shutdown_exception_does_not_crash_job(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_snapshots: MagicMock,
+        mock_cmd: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_syncoid.return_value = (True, "")
+        mock_snapshots.return_value = []
+        mock_cmd.side_effect = Exception("Connection reset by peer")
+
+        job = _make_job(shutdown_after=True)
+        result = run_job(job)
+
+        # Job should still succeed even if shutdown raises
+        assert result.success is True
+
+
+class TestRunJobLogLinesCapture:
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_command")
+    @patch("hozo.core.job.list_remote_snapshots")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_syncoid_output_appears_in_log_lines(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_snapshots: MagicMock,
+        mock_cmd: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_syncoid.return_value = (True, "Sending snaps\nTransfer complete\n")
+        mock_snapshots.return_value = []
+        mock_cmd.return_value = (0, "", "")
+
+        result = run_job(_make_job())
+        combined = "\n".join(result.log_lines)
+        assert "Sending snaps" in combined or "Transfer complete" in combined
+
+
+class TestRestoreJobOutputCapture:
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_restore_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_syncoid_output_in_restore_log_lines(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_restore: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_restore.return_value = (True, "Pulling snaps\nDone\n")
+
+        result = run_restore_job(_make_job())
+
+        assert result.success is True
+        combined = "\n".join(result.log_lines)
+        assert "Pulling snaps" in combined or "Done" in combined
+
+
+class TestSyncoidErrorOutputCapture:
+    """Cover the SyncoidError branch that includes stdout/stderr output (lines 187-195)."""
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job._maybe_shutdown")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_syncoid_error_output_appended_to_log_lines(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_shutdown: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        from hozo.core.backup import SyncoidError
+
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_syncoid.side_effect = SyncoidError(
+            1,
+            stderr="dataset not found",
+            stdout="partial output",
+        )
+
+        job = _make_job(retries=1, retry_delay=0)
+        result = run_job(job)
+
+        assert result.success is False
+        combined = "\n".join(result.log_lines)
+        # The error output should appear somewhere in the log
+        assert "dataset not found" in combined or "partial output" in combined
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job._maybe_shutdown")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_syncoid_error_retries_with_delay(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_shutdown: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        """With retries=2, retry_delay is called between attempts."""
+        from hozo.core.backup import SyncoidError
+
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_syncoid.side_effect = SyncoidError(1, "err")
+
+        job = _make_job(retries=2, retry_delay=5)
+        result = run_job(job)
+
+        assert result.success is False
+        # sleep(retry_delay) called between the 2 attempts
+        mock_sleep.assert_any_call(5)
+
+
+class TestMaybeShutdownWarning:
+    """Cover the exit_code warning branch in _maybe_shutdown (line 263)."""
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_command")
+    @patch("hozo.core.job.list_remote_snapshots")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_nonzero_shutdown_exit_code_does_not_crash(
+        self,
+        mock_wake: MagicMock,
+        mock_wait_ssh: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_snapshots: MagicMock,
+        mock_cmd: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        """If shutdown command returns exit code 1, we just log a warning."""
+        mock_wake.return_value = True
+        mock_wait_ssh.return_value = True
+        mock_syncoid.return_value = (True, "")
+        mock_snapshots.return_value = []
+        # Return exit_code=1 (not 0 or -1) to trigger the warning branch
+        mock_cmd.return_value = (1, "", "permission denied")
+
+        job = _make_job(shutdown_after=True)
+        result = run_job(job)
+
+        # Job should still succeed even with nonzero shutdown exit code
+        assert result.success is True

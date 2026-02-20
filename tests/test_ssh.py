@@ -86,3 +86,40 @@ class TestRunCommand:
         run_command("host", "uptime")
 
         mock_client.close.assert_called_once()
+
+
+class TestRunCommandCredentials:
+    """Cover key_path and password branches."""
+
+    def _make_mock_client(
+        self, stdout_data: str = "", stderr_data: str = "", exit_code: int = 0
+    ) -> MagicMock:
+        mock_stdout = MagicMock()
+        mock_stdout.read.return_value = stdout_data.encode()
+        mock_stdout.channel.recv_exit_status.return_value = exit_code
+        mock_stderr = MagicMock()
+        mock_stderr.read.return_value = stderr_data.encode()
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = (MagicMock(), mock_stdout, mock_stderr)
+        return mock_client
+
+    @patch("hozo.core.ssh.paramiko.SSHClient")
+    def test_key_path_passed_to_connect(self, mock_ssh_cls: MagicMock) -> None:
+        mock_client = self._make_mock_client()
+        mock_ssh_cls.return_value = mock_client
+
+        run_command("host", "cmd", key_path="~/.ssh/id_ed25519")
+
+        call_kwargs = mock_client.connect.call_args[1]
+        assert "key_filename" in call_kwargs
+        assert "id_ed25519" in call_kwargs["key_filename"]
+
+    @patch("hozo.core.ssh.paramiko.SSHClient")
+    def test_password_passed_to_connect(self, mock_ssh_cls: MagicMock) -> None:
+        mock_client = self._make_mock_client()
+        mock_ssh_cls.return_value = mock_client
+
+        run_command("host", "cmd", password="hunter2")
+
+        call_kwargs = mock_client.connect.call_args[1]
+        assert call_kwargs.get("password") == "hunter2"

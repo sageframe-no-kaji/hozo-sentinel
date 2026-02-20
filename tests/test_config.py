@@ -142,3 +142,25 @@ class TestJobsFromConfig:
         jobs = jobs_from_config(config)
         assert jobs[0].timeout == 300
         assert jobs[0].ssh_user == "backup"
+
+
+# ── Additional coverage for validate_config edge cases ───────────────────────
+
+
+class TestValidateConfigEdgeCases:
+    """Cover remaining branches in validate_config."""
+
+    def test_config_not_a_dict_returns_error(self) -> None:
+        """Non-dict config root → error message."""
+        errors = validate_config("not a dict")  # type: ignore[arg-type]
+        assert any("mapping" in e for e in errors)
+
+    def test_jobs_not_a_list_returns_error(self) -> None:
+        """jobs key present but not a list (e.g. a string) → error."""
+        errors = validate_config({"jobs": "weekly"})
+        assert any("list" in e for e in errors)
+
+    def test_job_entry_not_a_dict_returns_error(self) -> None:
+        """A job entry that is not a dict (e.g. a bare string) → error."""
+        errors = validate_config({"jobs": ["not-a-dict"]})
+        assert any("mapping" in e for e in errors)
