@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from hozo.core.job import BackupJob, JobResult, run_job
+from hozo.core.job import BackupJob, JobResult, run_job, run_restore_job
 
 
 def _make_job(**kwargs: object) -> BackupJob:
@@ -170,3 +170,69 @@ class TestRunJob:
 
         # run_command should NOT be called (no shutdown, no snapshot commands beyond list)
         mock_run_cmd.assert_not_called()
+
+
+class TestRunRestoreJob:
+    """Tests for the break-glass restore job runner."""
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_restore_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_successful_restore_returns_success(
+        self,
+        mock_wake: MagicMock,
+        mock_wait: MagicMock,
+        mock_restore: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait.return_value = True
+        mock_restore.return_value = (True, "")
+
+        result = run_restore_job(_make_job())
+
+        assert result.success is True
+        assert result.job_name == "test"
+        mock_restore.assert_called_once()
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_restore_fails_when_ssh_unavailable(
+        self,
+        mock_wake: MagicMock,
+        mock_wait: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait.return_value = False
+
+        result = run_restore_job(_make_job())
+
+        assert result.success is False
+        assert result.error is not None
+        assert "SSH" in result.error
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_restore_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_restore_returns_failure_on_syncoid_error(
+        self,
+        mock_wake: MagicMock,
+        mock_wait: MagicMock,
+        mock_restore: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        from hozo.core.backup import SyncoidError
+
+        mock_wake.return_value = True
+        mock_wait.return_value = True
+        mock_restore.side_effect = SyncoidError(1, "dataset not found", "")
+
+        result = run_restore_job(_make_job())
+
+        assert result.success is False
+        assert result.error is not None
+        assert "syncoid restore failed" in result.error

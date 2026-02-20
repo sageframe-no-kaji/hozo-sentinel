@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hozo.core.backup import SyncoidError, run_syncoid
+from hozo.core.backup import SyncoidError, run_restore_syncoid, run_syncoid
 
 
 class TestRunSyncoid:
@@ -71,3 +71,72 @@ class TestRunSyncoid:
 
         args = mock_run.call_args[0][0]
         assert any("admin@myhost:backup/data" in a for a in args)
+
+
+class TestRunRestoreSyncoid:
+    """Tests for run_restore_syncoid (break-glass restore)."""
+
+    @patch("hozo.core.backup.subprocess.run")
+    def test_successful_restore_returns_true(self, mock_run: MagicMock) -> None:
+        """Should return (True, output) when syncoid exits 0."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok", stderr="")
+
+        result = run_restore_syncoid(
+            source_dataset="rpool/data",
+            target_host="backup.local",
+            target_dataset="backup/data",
+        )
+
+        assert result[0] is True
+        mock_run.assert_called_once()
+
+    @patch("hozo.core.backup.subprocess.run")
+    def test_source_is_remote_in_restore(self, mock_run: MagicMock) -> None:
+        """Source argument must be user@host:dataset (remote backup)."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        run_restore_syncoid(
+            source_dataset="rpool/data",
+            target_host="backup.local",
+            target_dataset="backup/rpool-data",
+            ssh_user="admin",
+        )
+
+        args = mock_run.call_args[0][0]
+        # Second-to-last arg is the remote source; last is local dest
+        assert any("admin@backup.local:backup/rpool-data" in a for a in args)
+        assert args[-1] == "rpool/data"
+
+    @patch("hozo.core.backup.subprocess.run")
+    def test_force_delete_included_by_default(self, mock_run: MagicMock) -> None:
+        """--force-delete should be in the command by default."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        run_restore_syncoid("rpool/data", "backup.local", "backup/data")
+
+        args = mock_run.call_args[0][0]
+        assert "--force-delete" in args
+
+    @patch("hozo.core.backup.subprocess.run")
+    def test_force_delete_omitted_when_disabled(self, mock_run: MagicMock) -> None:
+        """--force-delete should be absent when force_delete=False."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        run_restore_syncoid(
+            "rpool/data", "backup.local", "backup/data", force_delete=False
+        )
+
+        args = mock_run.call_args[0][0]
+        assert "--force-delete" not in args
+
+    @patch("hozo.core.backup.subprocess.run")
+    def test_raises_syncoid_error_on_failure(self, mock_run: MagicMock) -> None:
+        """Should raise SyncoidError when syncoid exits non-zero."""
+        mock_run.return_value = MagicMock(
+            returncode=1, stderr="dataset not found", stdout=""
+        )
+
+        with pytest.raises(SyncoidError) as exc_info:
+            run_restore_syncoid("rpool/data", "backup.local", "backup/data")
+
+        assert exc_info.value.returncode == 1

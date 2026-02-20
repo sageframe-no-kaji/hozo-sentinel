@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -461,6 +461,62 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     @app.get("/jobs/{job_name}/log/lines", response_class=HTMLResponse)
     async def get_job_log_lines(request: Request, job_name: str) -> HTMLResponse:
         result = app.state.last_results.get(job_name)
+        log_lines = list(result.log_lines) if result else []
+        return templates.TemplateResponse(
+            request, "partials/log_lines.html", {"log_lines": log_lines}
+        )
+
+    # ── Break-glass restore ───────────────────────────────────────────────────
+
+    @app.get("/jobs/{job_name}/restore", response_class=HTMLResponse)
+    async def get_restore_confirm(request: Request, job_name: str) -> HTMLResponse:
+        job = next((j for j in app.state.jobs if j.name == job_name), None)
+        if not job:
+            return HTMLResponse(f"Job '{job_name}' not found", status_code=404)
+        return _tpl(request, "restore_confirm.html", {"job": job})
+
+    @app.post("/jobs/{job_name}/restore", response_class=HTMLResponse)
+    async def post_restore(
+        request: Request,
+        job_name: str,
+        background_tasks: BackgroundTasks,
+        confirm_name: str = Form(""),
+    ) -> Response:
+        job = next((j for j in app.state.jobs if j.name == job_name), None)
+        if not job:
+            return HTMLResponse(f"Job '{job_name}' not found", status_code=404)
+        if confirm_name.strip() != job_name:
+            return _tpl(
+                request,
+                "restore_confirm.html",
+                {"job": job, "error": "Job name did not match. Restore cancelled."},
+            )
+        from hozo.core.job import run_restore_job
+
+        def _run() -> None:
+            result = run_restore_job(job)
+            app.state.last_restore_results[result.job_name] = result
+
+        background_tasks.add_task(_run)
+        return RedirectResponse(f"/jobs/{job_name}/restore/log", status_code=303)
+
+    @app.get("/jobs/{job_name}/restore/log", response_class=HTMLResponse)
+    async def get_restore_log(
+        request: Request, job_name: str
+    ) -> HTMLResponse:
+        result = app.state.last_restore_results.get(job_name)
+        log_lines = list(result.log_lines) if result else []
+        return _tpl(
+            request,
+            "restore_log.html",
+            {"job_name": job_name, "result": result, "log_lines": log_lines},
+        )
+
+    @app.get("/jobs/{job_name}/restore/log/lines", response_class=HTMLResponse)
+    async def get_restore_log_lines(
+        request: Request, job_name: str
+    ) -> HTMLResponse:
+        result = app.state.last_restore_results.get(job_name)
         log_lines = list(result.log_lines) if result else []
         return templates.TemplateResponse(
             request, "partials/log_lines.html", {"log_lines": log_lines}

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-from hozo.core.backup import SyncoidError, list_remote_snapshots, run_syncoid
+from hozo.core.backup import SyncoidError, list_remote_snapshots, run_restore_syncoid, run_syncoid
 from hozo.core.disk import wait_for_remote_drive_active
 from hozo.core.ssh import run_command, wait_for_ssh
 from hozo.core.wol import wake
@@ -267,3 +267,107 @@ def _maybe_shutdown(job: BackupJob) -> None:
         logger.debug(
             "[%s] Shutdown command raised (expected if machine already off): %s", job.name, exc
         )
+
+
+# ── Break-glass restore ───────────────────────────────────────────────────────
+
+
+def run_restore_job(job: BackupJob) -> JobResult:
+    """
+    Pull the remote backup back onto the local machine (disaster recovery).
+
+    This is a single-attempt, one-shot operation.  No retries, no scheduler.
+    The remote backup host must be reachable; WoL is sent if a MAC is configured.
+
+    WARNING: Overwrites ``job.source_dataset`` with data from
+    ``job.target_host:job.target_dataset``.  Local snapshots that do not exist on
+    the remote are deleted (``--force-delete``).
+
+    Returns:
+        JobResult — same structure as a normal backup result so the log viewer
+        template can be reused.
+    """
+    started_at = datetime.now(timezone.utc)
+
+    log_lines: list[str] = []
+
+    class _ListHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%H:%M:%S")
+            log_lines.append(f"[{ts}] {record.levelname:7s} {record.getMessage()}")
+
+    _handler = _ListHandler(level=logging.DEBUG)
+    _root = logging.getLogger("hozo")
+    _root.addHandler(_handler)
+
+    try:
+        logger.warning(
+            "=== RESTORE: %s:%s → local %s ===",
+            job.target_host, job.target_dataset, job.source_dataset,
+        )
+
+        # ── Step 1: Wake ──────────────────────────────────────────────────────
+        if job.mac_address:
+            logger.info("Sending WoL to %s (%s)", job.target_host, job.mac_address)
+            wake(job.mac_address, job.wol_broadcast)
+
+        # ── Step 2: Wait for SSH ──────────────────────────────────────────────
+        logger.info("Waiting for SSH on %s…", job.target_host)
+        if not wait_for_ssh(
+            job.target_host,
+            port=job.ssh_port,
+            timeout=job.timeout,
+        ):
+            return JobResult(
+                job_name=job.name,
+                success=False,
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                error=f"SSH on {job.target_host} did not become available within {job.timeout}s",
+                log_lines=log_lines,
+            )
+
+        # ── Step 3: Restore ───────────────────────────────────────────────────
+        logger.info(
+            "Pulling %s:%s → %s (force-delete enabled)",
+            job.target_host, job.target_dataset, job.source_dataset,
+        )
+        try:
+            _, syncoid_output = run_restore_syncoid(
+                source_dataset=job.source_dataset,
+                target_host=job.target_host,
+                target_dataset=job.target_dataset,
+                recursive=job.recursive,
+                ssh_user=job.ssh_user,
+                ssh_key=job.ssh_key,
+                ssh_port=job.ssh_port,
+                no_privilege_elevation=job.no_privilege_elevation,
+                force_delete=True,
+            )
+            for line in syncoid_output.splitlines():
+                if line.strip():
+                    log_lines.append(f"[syncoid] {line}")
+        except SyncoidError as exc:
+            for line in (exc.stdout + exc.stderr).splitlines():
+                if line.strip():
+                    log_lines.append(f"[syncoid] {line}")
+            return JobResult(
+                job_name=job.name,
+                success=False,
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                error=f"syncoid restore failed (exit {exc.returncode}): {exc.stderr.strip()}",
+                log_lines=log_lines,
+            )
+
+        logger.warning("=== RESTORE complete: %s ===", job.name)
+        return JobResult(
+            job_name=job.name,
+            success=True,
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc),
+            log_lines=log_lines,
+        )
+
+    finally:
+        _root.removeHandler(_handler)

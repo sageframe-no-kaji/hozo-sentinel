@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Break-glass Restore — {{ job.name }} — Hōzō{% endblock %}
+{% block content %}
+
+{# ── Alarm banner ──────────────────────────────────────────────────────────── #}
+<div class="badge-err rounded p-4 mb-6 border border-red-600">
+  <div class="text-lg font-bold mb-1">⚠ Break-glass restore</div>
+  <p class="text-sm text-red-200">
+    This will <strong>overwrite local data</strong> with the backup held on the remote host.
+    Local ZFS snapshots that do not exist on the backup will be <strong>deleted</strong>.
+    There is no undo.
+  </p>
+</div>
+
+{# ── What will happen ─────────────────────────────────────────────────────── #}
+<div class="card p-4 mb-6 text-sm space-y-2">
+  <div class="text-slate-400 uppercase text-xs tracking-wide mb-2">Restore plan</div>
+  <div class="flex gap-3">
+    <span class="text-slate-500 w-24 shrink-0">Pull from</span>
+    <span class="font-mono text-cyan-300">{{ job.ssh_user }}@{{ job.target_host }}:{{ job.target_dataset }}</span>
+  </div>
+  <div class="flex gap-3">
+    <span class="text-slate-500 w-24 shrink-0">Write to</span>
+    <span class="font-mono text-yellow-300">{{ job.source_dataset }}</span>
+    <span class="text-slate-500 text-xs">(local)</span>
+  </div>
+  <div class="flex gap-3">
+    <span class="text-slate-500 w-24 shrink-0">Flags</span>
+    <span class="font-mono text-slate-400 text-xs">--force-delete{% if job.recursive %} --recursive{% endif %}</span>
+  </div>
+  {% if job.mac_address %}
+  <div class="flex gap-3">
+    <span class="text-slate-500 w-24 shrink-0">WoL</span>
+    <span class="font-mono text-slate-400 text-xs">{{ job.mac_address }}</span>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Error from bad confirmation attempt ───────────────────────────────────── #}
+{% if error %}
+<div class="badge-err text-xs rounded px-3 py-2 mb-4 font-mono">{{ error }}</div>
+{% endif %}
+
+{# ── Confirmation form ────────────────────────────────────────────────────── #}
+<form method="post" action="/jobs/{{ job.name }}/restore" class="card p-4 space-y-4">
+  <div>
+    <label class="block text-sm text-slate-300 mb-1">
+      Type <span class="font-mono text-white">{{ job.name }}</span> to confirm
+    </label>
+    <input
+      type="text"
+      name="confirm_name"
+      autocomplete="off"
+      placeholder="{{ job.name }}"
+      class="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm font-mono
+             focus:outline-none focus:border-red-500 text-white placeholder-slate-600"
+      required
+    />
+  </div>
+
+  <div class="flex gap-3">
+    <button type="submit"
+            class="btn-danger px-5 py-2 rounded font-semibold text-sm text-white">
+      RESTORE
+    </button>
+    <a href="/" class="px-5 py-2 rounded text-sm text-slate-400 hover:text-slate-200 border border-slate-600">
+      Cancel
+    </a>
+  </div>
+</form>
+
+<p class="mt-4 text-xs text-slate-600">
+  Hereafter you can monitor progress at
+  <a href="/jobs/{{ job.name }}/restore/log" class="text-slate-500 hover:text-slate-400 underline">/jobs/{{ job.name }}/restore/log</a>
+</p>
+
+{% endblock %}
