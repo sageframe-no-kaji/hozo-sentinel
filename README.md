@@ -48,7 +48,7 @@ Hōzō automates off-site ZFS backups to a sleeping remote machine:
             WoL + SSH (Tailscale recommended)
                      ▼
 ╔══════════════════════════════════════════════════════╗
-║  REMOTE BACKUP BOX  (NUC / mini-PC, normally off)   ║
+║  REMOTE BACKUP BOX  (NUC / mini-PC, normally off)    ║
 ║                                                      ║
 ║  No agent needed — only requires:                    ║
 ║    • ZFS installed                                   ║
