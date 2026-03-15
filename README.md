@@ -1,5 +1,9 @@
 # Hōzō (宝蔵)
 
+Hozo automatically wakes a sleeping backup server,runs ZFS snapshot replication with syncoid,
+verifies the snapshots, then shuts the server back down.
+Designed for low-power homelab backup nodes.
+
 **Treasure Storehouse** — A wake-on-demand ZFS backup orchestrator.
 
 Hōzō runs **entirely on your controller machine** (the one with the source ZFS pool). It uses [`syncoid`](https://github.com/jimsalterjrs/sanoid) — installed locally — to push ZFS snapshots to a remote backup box over SSH. **No agent is required on the remote machine.** The remote only needs ZFS, SSH, and a user with appropriate ZFS permissions.
