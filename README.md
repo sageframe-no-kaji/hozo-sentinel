@@ -11,6 +11,8 @@ Hōzō runs **entirely on your controller machine** (the one with the source ZFS
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
+**Development Process:** This project was built using the [Ho System](https://atmarcus.net/work/ho-system), a structured methodology for human-AI collaborative development. The human makes every design decision. The AI implements under direction. There is verification at every step.
+
 ---
 
 ## What It Does
@@ -371,7 +373,7 @@ venv/bin/pytest --cov=hozo --cov-report=term-missing
 venv/bin/hozo serve
 ```
 
-Tests live in [`tests/`](tests/) and cover backup logic, job orchestration, config loading, scheduling, SSH helpers, WoL, WebAuthn, and the API routes. Current test count: **158 tests**.
+Tests live in [`tests/`](tests/) and cover backup logic, job orchestration, config loading, scheduling, SSH helpers, WoL, WebAuthn, and the API routes. Current test count: **278 tests**.
 
 ---
 
