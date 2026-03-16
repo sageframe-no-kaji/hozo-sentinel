@@ -1,5 +1,8 @@
 # Hōzō (宝蔵)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+
 Hozo automatically wakes a sleeping backup server,runs ZFS snapshot replication with syncoid,
 verifies the snapshots, then shuts the server back down.
 Designed for low-power homelab backup nodes.
@@ -7,9 +10,6 @@ Designed for low-power homelab backup nodes.
 **Treasure Storehouse** — A wake-on-demand ZFS backup orchestrator.
 
 Hōzō runs **entirely on your controller machine** (the one with the source ZFS pool). It uses [`syncoid`](https://github.com/jimsalterjrs/sanoid) — installed locally — to push ZFS snapshots to a remote backup box over SSH. **No agent is required on the remote machine.** The remote only needs ZFS, SSH, and a user with appropriate ZFS permissions.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
 **Development Process:** This project was built using the [Ho System](https://atmarcus.net/work/ho-system), a structured methodology for human-AI collaborative development. The human makes every design decision. The AI implements under direction. There is verification at every step.
 
