@@ -20,5 +20,8 @@ tests/
 docs/
 devlog/
 *.md
+# README is referenced by pyproject (readme = "README.md") — keep it in context
+# so `pip install .` can read the long-description metadata.
+!README.md
 docker-compose.yml
 .flake8
