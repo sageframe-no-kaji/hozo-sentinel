@@ -7,8 +7,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_STATE_RE = re.compile(r"^\s*state:\s+(\S+)", re.MULTILINE)
-
 
 def get_pool_status(pool: Optional[str] = None) -> dict:
     """
@@ -89,31 +87,3 @@ def export_pool(name: str) -> bool:
     except Exception as exc:
         logger.error("Exception exporting pool %s: %s", name, exc)
         return False
-
-
-def disk_spin_state(device: str) -> str:
-    """
-    Query hard disk spin state using hdparm -C.
-
-    Args:
-        device: Block device path (e.g., "/dev/sda")
-
-    Returns:
-        One of: "active/idle", "standby", "sleeping", "unknown"
-    """
-    try:
-        result = subprocess.run(
-            ["hdparm", "-C", device],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        for line in result.stdout.splitlines():
-            if "drive state is:" in line.lower():
-                return line.split(":")[-1].strip()
-        return "unknown"
-    except FileNotFoundError:
-        return "hdparm not available"
-    except Exception as exc:
-        logger.debug("disk_spin_state: %s", exc)
-        return "unknown"

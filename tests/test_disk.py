@@ -6,6 +6,7 @@ Tests cover both:
 - hozo.core.disk — SSH-based remote drive checks (runs on the orchestrator)
 """
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -171,6 +172,64 @@ class TestHasRecentIoActivity:
     @patch("backupd.disk._read_io_completions", return_value=None)
     def test_returns_none_when_sysfs_unavailable(self, _: MagicMock) -> None:
         assert has_recent_io_activity("/dev/sda", probe_interval=0.01) is None
+
+    @patch("backupd.disk._read_io_completions", side_effect=[100, None])
+    def test_returns_none_when_second_probe_unavailable(self, _: MagicMock) -> None:
+        assert has_recent_io_activity("/dev/sda", probe_interval=0.01) is None
+
+
+class TestGetDriveStateSysfsFallback:
+    @patch("backupd.disk.Path")
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_sysfs_read_returns_unknown(self, _run: MagicMock, mock_path: MagicMock) -> None:
+        # hdparm missing → fall back to a /sys/block stat read that succeeds.
+        inst = mock_path.return_value
+        inst.exists.return_value = True
+        inst.read_bytes.return_value = b"data"
+        assert get_drive_state("/dev/sda") == "unknown"
+
+    @patch("backupd.disk.Path")
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_sysfs_read_error_returns_unavailable(
+        self, _run: MagicMock, mock_path: MagicMock
+    ) -> None:
+        inst = mock_path.return_value
+        inst.exists.return_value = True
+        inst.read_bytes.side_effect = OSError("I/O error")
+        assert get_drive_state("/dev/sda") == "hdparm_unavailable"
+
+
+class TestSpinUpDriveTimeout:
+    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired("dd", 60))
+    def test_returns_false_on_timeout(self, _: MagicMock) -> None:
+        assert spin_up_drive("/dev/sda") is False
+
+
+class TestReadIoCompletions:
+    @patch("backupd.disk.Path")
+    def test_returns_none_when_stat_missing(self, mock_path: MagicMock) -> None:
+        from backupd.disk import _read_io_completions
+
+        mock_path.return_value.exists.return_value = False
+        assert _read_io_completions("/dev/sda") is None
+
+    @patch("backupd.disk.Path")
+    def test_returns_first_field_as_int(self, mock_path: MagicMock) -> None:
+        from backupd.disk import _read_io_completions
+
+        inst = mock_path.return_value
+        inst.exists.return_value = True
+        inst.read_text.return_value = "512 0 4096 0 0"
+        assert _read_io_completions("/dev/sda") == 512
+
+    @patch("backupd.disk.Path")
+    def test_returns_none_on_parse_error(self, mock_path: MagicMock) -> None:
+        from backupd.disk import _read_io_completions
+
+        inst = mock_path.return_value
+        inst.exists.return_value = True
+        inst.read_text.return_value = ""  # no fields → IndexError → None
+        assert _read_io_completions("/dev/sda") is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

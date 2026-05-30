@@ -1,6 +1,7 @@
 """System-level operations for the remote backup agent."""
 
 import logging
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -41,6 +42,14 @@ def safe_shutdown(export_pools: bool = True, delay_seconds: int = 2) -> bool:
     Returns:
         True if shutdown command was issued (process terminates after)
     """
+    # Verify we can actually power the machine off *before* exporting pools.
+    # Exporting first and then failing to shut down would leave the box up
+    # with its pools offline — silently breaking the next backup run.
+    shutdown_bin = shutil.which("shutdown")
+    if shutdown_bin is None:
+        logger.error("'shutdown' not found on PATH — aborting, pools left imported")
+        return False
+
     if export_pools:
         pools = list_pools()
         for pool in pools:
@@ -53,7 +62,7 @@ def safe_shutdown(export_pools: bool = True, delay_seconds: int = 2) -> bool:
     logger.info("Issuing 'shutdown -h now'")
     try:
         subprocess.run(
-            ["shutdown", "-h", "now"],
+            [shutdown_bin, "-h", "now"],
             check=False,
             capture_output=True,
             timeout=10,
