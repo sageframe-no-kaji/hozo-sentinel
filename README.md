@@ -77,6 +77,28 @@ Hōzō automates off-site ZFS backups to a sleeping remote machine:
 
 ---
 
+## Prerequisites — what you set up vs. what Hōzō does
+
+Hōzō is an **orchestrator, not a provisioner.** It assumes ZFS already exists on both ends and choreographs the replication. Before your first run:
+
+**You provision once, by hand:**
+
+- ZFS installed on both the controller and the backup box.
+- The **backup pool created and imported** on the remote box (`zpool create …`, and `zpool import` it again after a reboot). Hōzō never creates or imports pools — vdev topology, `ashift`, compression, and encryption are decisions it deliberately leaves to you.
+- SSH key access to the box, with a user that can receive ZFS streams onto the target (`zfs allow … receive,create,mount`, or root).
+- Your **source datasets already exist** — that's your live data.
+
+**Hōzō + syncoid handle on every run:**
+
+- The transfer snapshot on the source, the `zfs send | zfs receive` over SSH, and **creating the destination child datasets** under the existing target pool. You don't pre-create `backup/rpool-data`; you *do* need `backup` (the pool) to exist and be imported.
+- Waking the box (Wake-on-LAN), waking a spun-down drive (an SSH-issued read), retries, snapshot verification, and optional shutdown.
+
+**Hōzō does NOT manage retention.** The image installs both sanoid and syncoid, but Hōzō only ever calls **syncoid** — it replicates, it never prunes. Snapshot lifecycle on either end (how many you keep, when they expire) is a [sanoid](https://github.com/jimsalterjrs/sanoid) policy you configure yourself. Without one, your backup pool grows until it is full.
+
+**Always-on backup box?** The default flow powers the box down after each run (`shutdown_after: true`). If your box runs 24/7, **uncheck "Shutdown remote host after backup"** on the job (or set `shutdown_after: false`) — otherwise Hōzō powers it off. Drive-only sleep still works: set `backup_device` and Hōzō wakes just that drive over SSH before syncing. Note Hōzō *wakes* drives but does not put them to sleep — configure spindown on the box yourself (`hdparm -S` for SATA, `hd-idle` for USB enclosures).
+
+---
+
 ## Installation
 
 ```bash
@@ -128,12 +150,12 @@ auth:
 
 jobs:
   - name: weekly
-    source_dataset: rpool/data
+    source: rpool/data
     target_host: backup-box.tailnet.ts.net
     target_dataset: backup/rpool-data
     mac_address: "AA:BB:CC:DD:EE:FF"
     schedule: "weekly Sunday 03:00"
-    shutdown_after: true
+    shutdown_after: true      # set false if the box runs 24/7
 ```
 
 ### 3. Run a backup now
@@ -201,7 +223,7 @@ auth:
 
 jobs:
   - name: string            # Required: unique job identifier
-    source_dataset: string  # Required: local ZFS dataset  (e.g. rpool/data)
+    source: string          # Required: local ZFS dataset  (e.g. rpool/data)
     target_host: string     # Required: remote hostname or Tailscale address
     target_dataset: string  # Required: remote ZFS dataset (e.g. backup/rpool-data)
     mac_address: string     # Required: MAC for WOL (AA:BB:CC:DD:EE:FF)
@@ -212,7 +234,7 @@ jobs:
     ssh_key: ~/.ssh/id_ed25519
     ssh_port: 22
     recursive: true
-    shutdown_after: true
+    shutdown_after: true     # power the box off after backup; false for always-on boxes
     retries: 3
     retry_delay: 60         # seconds between retry attempts
     wol_broadcast: 255.255.255.255
@@ -373,7 +395,7 @@ venv/bin/pytest --cov=hozo --cov-report=term-missing
 venv/bin/hozo serve
 ```
 
-Tests live in [`tests/`](tests/) and cover backup logic, job orchestration, config loading, scheduling, SSH helpers, WoL, WebAuthn, and the API routes. Current test count: **278 tests**.
+Tests live in [`tests/`](tests/) and cover backup logic, job orchestration, config loading, scheduling, SSH helpers, WoL, WebAuthn, the `backupd` agent, and the API routes. Current test count: **336 tests**.
 
 ---
 
