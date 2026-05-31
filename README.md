@@ -99,6 +99,68 @@ Hōzō is an **orchestrator, not a provisioner.** It assumes ZFS already exists 
 
 ---
 
+## Setting up an offsite target
+
+The remote box receives data and runs **no Hōzō code**. This is the one-time setup, run **on the target box, as root**.
+
+### 1. Create a dedicated backup pool on the external drive
+
+Identify the drive by its stable `by-id` path — never `/dev/sdX`, which can change across reboots — then create a pool with a name that can't be confused with the box's own pools:
+
+```bash
+ls -l /dev/disk/by-id/          # find the new disk
+zpool create -o ashift=12 -O compression=lz4 -O atime=off \
+  -O canmount=off offsite /dev/disk/by-id/<your-disk-id>
+```
+
+`canmount=off` keeps received datasets from auto-mounting — a replication target doesn't need to be mounted, and it sidesteps a non-root mount-permission issue (below).
+
+### 2. Make sure it auto-imports after a reboot
+
+An unattended box must bring the pool back by itself, or every job fails until someone intervenes. Confirm the pool is in the import cache:
+
+```bash
+zpool set cachefile=/etc/zfs/zpool.cache offsite
+systemctl is-enabled zfs-import-cache.service     # expect: enabled
+```
+
+### 3. Authorize the controller and grant receive rights
+
+Add the **controller's** SSH public key to the target, then choose how the controller receives:
+
+```bash
+# Simplest — back up as root (job uses ssh_user: root):
+#   add the controller's key to /root/.ssh/authorized_keys
+
+# Or delegate to an existing non-root user:
+zfs allow <user> create,receive,mount,mountpoint offsite
+```
+
+Verify from the controller (also confirms zfs is on the non-interactive SSH PATH):
+
+```bash
+ssh <target> 'command -v zfs zpool && zpool status offsite'
+```
+
+### 4. Seed the first backup locally, then relocate the drive
+
+`syncoid` has a **1-hour per-run timeout**, so the large initial replication should not run over the internet. Seed it at LAN speed, then physically move the drive:
+
+```bash
+# On the controller, with the drive attached locally and the pool imported:
+hozo jobs run <job>          # full initial replication over LAN
+
+zpool export offsite         # flush and detach cleanly
+#  → carry the drive to the offsite box →
+zpool import offsite         # on the target box
+```
+
+Then point the job's `target_host` at the offsite box. Subsequent runs send only small incrementals (matched by snapshot GUID), which finish well under the timeout.
+
+> **Spindown on an unattended drive:** prefer leaving it spinning. A USB bridge that drops off the bus during standby can fault the pool with no one on-site to recover it — reliability of the offsite copy beats drive longevity. See [Prerequisites](#prerequisites--what-you-set-up-vs-what-hōzō-does).
+
+---
+
 ## Installation
 
 ```bash
