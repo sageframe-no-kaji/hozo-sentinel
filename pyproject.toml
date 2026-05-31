@@ -67,6 +67,12 @@ Repository = "https://github.com/sageframe-no-kaji/hozo-sentinel"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Ship the Jinja templates with the package so the web UI works regardless of
+# install mode (editable vs wheel). Without this a non-editable install drops
+# every .html and the UI 500s on first request.
+hozo = ["api/templates/**/*.html"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310", "py311", "py312"]

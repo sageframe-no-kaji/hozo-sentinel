@@ -175,9 +175,7 @@ class TestBeginRegistration:
 class TestCompleteRegistration:
     @patch("hozo.auth.webauthn_helpers.webauthn.verify_registration_response")
     @patch("hozo.auth.webauthn_helpers.parse_registration_credential_json")
-    def test_returns_stored_credential(
-        self, mock_parse: MagicMock, mock_verify: MagicMock
-    ) -> None:
+    def test_returns_stored_credential(self, mock_parse: MagicMock, mock_verify: MagicMock) -> None:
         mock_credential = MagicMock()
         mock_parse.return_value = mock_credential
 
@@ -254,7 +252,7 @@ class TestBeginAuthentication:
 class TestCompleteAuthentication:
     def _make_stored_cred(self) -> StoredCredential:
         return StoredCredential(
-            credential_id=b"\xAA\xBB\xCC\xDD",
+            credential_id=b"\xaa\xbb\xcc\xdd",
             public_key=b"\x01\x02\x03\x04",
             sign_count=5,
             device_name="Test Key",
@@ -295,7 +293,7 @@ class TestCompleteAuthentication:
 
         # credential id that doesn't match any stored cred
         mock_credential = MagicMock()
-        mock_credential.id = base64.urlsafe_b64encode(b"\xFF\xFF\xFF\xFF").decode().rstrip("=")
+        mock_credential.id = base64.urlsafe_b64encode(b"\xff\xff\xff\xff").decode().rstrip("=")
         mock_parse.return_value = mock_credential
 
         stored_cred = self._make_stored_cred()
@@ -332,3 +330,27 @@ class TestCompleteAuthentication:
                 expected_origin="http://localhost",
                 stored_credentials=[stored_cred],
             )
+
+
+class TestChallengeFromCredentialBody:
+    def test_extracts_echoed_challenge(self) -> None:
+        import base64
+        import json
+
+        from hozo.auth.webauthn_helpers import challenge_from_credential_body
+
+        challenge = b"\x11\x22\x33\x44"
+        chal_b64 = base64.urlsafe_b64encode(challenge).decode().rstrip("=")
+        client_data = (
+            base64.urlsafe_b64encode(json.dumps({"challenge": chal_b64}).encode())
+            .decode()
+            .rstrip("=")
+        )
+        body = json.dumps({"id": "x", "response": {"clientDataJSON": client_data}})
+        assert challenge_from_credential_body(body) == challenge
+
+    def test_malformed_body_raises(self) -> None:
+        from hozo.auth.webauthn_helpers import challenge_from_credential_body
+
+        with pytest.raises(Exception):
+            challenge_from_credential_body('{"no":"response"}')

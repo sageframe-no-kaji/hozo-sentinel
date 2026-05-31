@@ -3,8 +3,10 @@
 #
 # Production setup:
 #   sudo mkdir -p /opt/services/hozo/{configs,logs,ssh}
-#   sudo cp configs/config.yaml /opt/services/hozo/configs/config.yaml
+#   sudo cp configs/config.example.yaml /opt/services/hozo/configs/config.yaml
 #   sudo cp ~/.ssh/id_ed25519 /opt/services/hozo/ssh/id_ed25519
+#   sudo cp ~/.ssh/id_ed25519.pub /opt/services/hozo/ssh/id_ed25519.pub
+#   touch /opt/services/hozo/ssh/known_hosts
 #   sudo chmod 600 /opt/services/hozo/ssh/id_ed25519
 #   docker compose up -d
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,20 +35,22 @@ services:
       # TAILSCALE_AUTHKEY: tskey-auth-xxxxx
 
     volumes:
-      # ── Config (read-only inside container) ─────────────────────────────────
-      - /opt/services/hozo/configs/config.yaml:/etc/hozo/config.yaml:ro
+      # ── Config directory (read-write) ───────────────────────────────────────
+      # Must be writable: the app seeds auth.session_secret on first boot and
+      # persists settings, jobs, and registered passkeys via an atomic
+      # temp-file + rename, which needs the *directory*, not a single file.
+      - /opt/services/hozo/configs:/etc/hozo
 
       # ── Logs (persistent, writable) ─────────────────────────────────────────
       - /opt/services/hozo/logs:/var/log/hozo
 
-      # ── SSH identity for backup-box access (read-only, one key file) ─────────
-      - /opt/services/hozo/ssh/id_ed25519:/root/.ssh/id_ed25519:ro
-      - /opt/services/hozo/ssh/id_ed25519.pub:/root/.ssh/id_ed25519.pub:ro
-      # Optional known_hosts to avoid host-key prompts:
-      - /opt/services/hozo/ssh/known_hosts:/root/.ssh/known_hosts:ro
+      # ── SSH identity for backup-box access (read-only directory) ────────────
+      # Mount the directory, not individual files: a missing id_ed25519.pub or
+      # known_hosts would otherwise be created by Docker as an empty directory.
+      - /opt/services/hozo/ssh:/root/.ssh:ro
 
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/status"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 60s
       timeout: 10s
       retries: 3

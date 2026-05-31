@@ -139,3 +139,15 @@ class TestWriteConfigException:
                 write_config(p, {"jobs": []})
 
         assert p.read_text() == "original: data"
+
+
+class TestConfigPermissions:
+    def test_config_written_owner_only(self, tmp_path: Path) -> None:
+        import os
+        import stat
+
+        path = tmp_path / "config.yaml"
+        write_config(path, {"auth": {"session_secret": "deadbeef"}})
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        # Secret-bearing config must not be group/world readable.
+        assert mode == 0o600

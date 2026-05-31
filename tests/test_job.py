@@ -294,7 +294,11 @@ class TestRunJobBackupDevice:
 
         assert result.success is False
         assert result.error is not None
-        assert "/dev/sdb" in result.error or "spin up" in result.error.lower() or "Drive" in result.error
+        assert (
+            "/dev/sdb" in result.error
+            or "spin up" in result.error.lower()
+            or "Drive" in result.error
+        )
 
 
 class TestRunJobGenericException:

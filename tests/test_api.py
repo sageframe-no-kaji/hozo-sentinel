@@ -1,11 +1,30 @@
 """Tests for the FastAPI web API."""
 
+import base64
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+
+
+def _webauthn_body(challenge: bytes, cred_id: str = "x") -> bytes:
+    """Build a credential JSON whose clientDataJSON echoes `challenge`.
+
+    Matches what the browser posts: the route extracts the challenge from
+    clientDataJSON to bind the response to the issued challenge.
+    """
+    chal_b64 = base64.urlsafe_b64encode(challenge).decode().rstrip("=")
+    client_data = (
+        base64.urlsafe_b64encode(
+            json.dumps({"type": "webauthn.get", "challenge": chal_b64}).encode()
+        )
+        .decode()
+        .rstrip("=")
+    )
+    return json.dumps({"id": cred_id, "response": {"clientDataJSON": client_data}}).encode()
 
 
 def _write_config(tmp_path: Path) -> Path:
@@ -104,6 +123,13 @@ class TestResultsEndpoint:
     def test_no_result_returns_404(self, client: TestClient) -> None:
         resp = client.get("/results/weekly")
         assert resp.status_code == 404
+
+
+class TestHealth:
+    def test_health_ok(self, client: TestClient) -> None:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
 
 
 class TestSettingsRoutes:
@@ -365,20 +391,22 @@ class TestShutdownExceptionCaught:
 
 
 class TestSettingsConditionalFields:
-    """Test settings POST with optional notification fields."""
+    """Settings POST must persist notifications in the nested schema that
+    notifications.notify actually reads (settings.notifications.*)."""
 
-    def test_settings_with_ntfy_url(self, client: TestClient) -> None:
+    def test_settings_with_ntfy_topic(self, client: TestClient) -> None:
         resp = client.post(
             "/settings",
             data={
                 "ssh_timeout": "90",
                 "ssh_user": "backup",
-                "ntfy_url": "https://ntfy.sh/hozo-test",
+                "ntfy_topic": "hozo-test",
             },
             follow_redirects=False,
         )
         assert resp.status_code == 303
-        assert client.app.state.settings.get("ntfy_url") == "https://ntfy.sh/hozo-test"
+        notif = client.app.state.settings["notifications"]
+        assert notif["ntfy_topic"] == "hozo-test"
 
     def test_settings_with_pushover_keys(self, client: TestClient) -> None:
         resp = client.post(
@@ -386,13 +414,15 @@ class TestSettingsConditionalFields:
             data={
                 "ssh_timeout": "90",
                 "ssh_user": "backup",
-                "pushover_user_key": "ukeyxyz",
-                "pushover_api_token": "tokenabc",
+                "pushover_token": "tokenabc",
+                "pushover_user": "ukeyxyz",
             },
             follow_redirects=False,
         )
         assert resp.status_code == 303
-        assert client.app.state.settings.get("pushover_user_key") == "ukeyxyz"
+        notif = client.app.state.settings["notifications"]
+        assert notif["pushover_token"] == "tokenabc"
+        assert notif["pushover_user"] == "ukeyxyz"
 
     def test_settings_with_smtp_fields(self, client: TestClient) -> None:
         resp = client.post(
@@ -403,12 +433,40 @@ class TestSettingsConditionalFields:
                 "smtp_host": "mail.example.com",
                 "smtp_port": "587",
                 "smtp_user": "hozo@example.com",
-                "smtp_to": "admin@example.com",
+                "smtp_to_addr": "admin@example.com",
+                "smtp_use_tls": "on",
             },
             follow_redirects=False,
         )
         assert resp.status_code == 303
-        assert client.app.state.settings.get("smtp_host") == "mail.example.com"
+        smtp = client.app.state.settings["notifications"]["smtp"]
+        assert smtp["host"] == "mail.example.com"
+        assert smtp["port"] == 587
+        assert smtp["to_addr"] == "admin@example.com"
+        assert smtp["use_tls"] is True
+
+    def test_settings_notifications_roundtrip_to_notify(self, client: TestClient) -> None:
+        # What the UI writes must be exactly what send_notification reads back.
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from hozo.core.job import JobResult
+        from hozo.notifications.notify import send_notification
+
+        client.post(
+            "/settings",
+            data={"ssh_timeout": "90", "ssh_user": "root", "ntfy_topic": "hozo-roundtrip"},
+        )
+        result = JobResult(job_name="j", success=True, started_at=datetime(2024, 6, 1))
+        with patch("hozo.notifications.notify._send_ntfy") as mock_ntfy:
+            send_notification(result, {"settings": client.app.state.settings})
+        mock_ntfy.assert_called_once()
+        assert mock_ntfy.call_args.kwargs["topic"] == "hozo-roundtrip"
+
+    def test_settings_empty_notifications_removes_block(self, client: TestClient) -> None:
+        client.app.state.settings["notifications"] = {"ntfy_topic": "old"}
+        client.post("/settings", data={"ssh_timeout": "90", "ssh_user": "root"})
+        assert "notifications" not in client.app.state.settings
 
 
 class TestJobFormOptionalFields:
@@ -553,7 +611,7 @@ class TestMiddlewareBranches:
         ):
             app = create_app(config_path=str(config_path))
             cred = StoredCredential(
-                credential_id=b"\xAA\xBB\xCC",
+                credential_id=b"\xaa\xbb\xcc",
                 public_key=b"\x01\x02\x03",
                 sign_count=0,
                 device_name="Key2",
@@ -700,7 +758,7 @@ class TestWebAuthnLoginBegin:
         ):
             app = create_app(config_path=str(config_path))
             cred = StoredCredential(
-                credential_id=b"\xAA\xBB",
+                credential_id=b"\xaa\xbb",
                 public_key=b"\x01\x02",
                 sign_count=0,
                 device_name="HW Key",
@@ -709,7 +767,9 @@ class TestWebAuthnLoginBegin:
             return TestClient(app)
 
     @patch("hozo.api.routes.begin_authentication")
-    def test_login_begin_returns_options(self, mock_begin: MagicMock, authed_client: TestClient) -> None:
+    def test_login_begin_returns_options(
+        self, mock_begin: MagicMock, authed_client: TestClient
+    ) -> None:
         mock_begin.return_value = ('{"publicKey":"opts"}', b"\x01\x02\x03")
         resp = authed_client.post("/auth/login/begin")
         assert resp.status_code == 200
@@ -733,7 +793,7 @@ class TestWebAuthnLoginComplete:
         ):
             app = create_app(config_path=str(config_path))
             cred = StoredCredential(
-                credential_id=b"\xAA\xBB",
+                credential_id=b"\xaa\xbb",
                 public_key=b"\x01\x02",
                 sign_count=0,
                 device_name="HW Key",
@@ -741,7 +801,9 @@ class TestWebAuthnLoginComplete:
             app.state.auth["credentials"] = [cred.to_dict()]
             return TestClient(app)
 
-    def test_login_complete_no_pending_challenge_returns_400(self, authed_client: TestClient) -> None:
+    def test_login_complete_no_pending_challenge_returns_400(
+        self, authed_client: TestClient
+    ) -> None:
         # No pending challenges seeded
         assert not authed_client.app.state.pending_challenges
         resp = authed_client.post("/auth/login/complete", content=b'{"id":"abc"}')
@@ -749,29 +811,34 @@ class TestWebAuthnLoginComplete:
         assert "No pending challenge" in resp.json()["error"]
 
     @patch("hozo.api.routes.complete_authentication")
-    def test_login_complete_exception_returns_400(self, mock_complete: MagicMock, authed_client: TestClient) -> None:
+    def test_login_complete_exception_returns_400(
+        self, mock_complete: MagicMock, authed_client: TestClient
+    ) -> None:
         from hozo.auth.webauthn_helpers import store_challenge
+
         challenge = b"\x01\x02\x03\x04"
         store_challenge(authed_client.app.state.pending_challenges, challenge)
         mock_complete.side_effect = Exception("Bad signature")
-        resp = authed_client.post("/auth/login/complete", content=b'{"id":"x"}')
+        resp = authed_client.post("/auth/login/complete", content=_webauthn_body(challenge))
         assert resp.status_code == 400
         assert "Bad signature" in resp.json()["error"]
 
     @patch("hozo.api.routes.complete_authentication")
-    def test_login_complete_success_sets_cookie(self, mock_complete: MagicMock, authed_client: TestClient) -> None:
+    def test_login_complete_success_sets_cookie(
+        self, mock_complete: MagicMock, authed_client: TestClient
+    ) -> None:
         from hozo.auth.webauthn_helpers import StoredCredential, store_challenge
 
         challenge = b"\x01\x02\x03\x04"
         store_challenge(authed_client.app.state.pending_challenges, challenge)
         updated_cred = StoredCredential(
-            credential_id=b"\xAA\xBB",
+            credential_id=b"\xaa\xbb",
             public_key=b"\x01\x02",
             sign_count=1,
             device_name="HW Key",
         )
         mock_complete.return_value = updated_cred
-        resp = authed_client.post("/auth/login/complete", content=b'{"id":"x"}')
+        resp = authed_client.post("/auth/login/complete", content=_webauthn_body(challenge))
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
         assert "hozo_session" in resp.cookies or resp.headers.get("set-cookie")
@@ -781,8 +848,10 @@ class TestWebAuthnRegisterBegin:
     """Cover POST /auth/register/begin."""
 
     @patch("hozo.api.routes.begin_registration")
-    def test_register_begin_returns_options(self, mock_begin: MagicMock, client: TestClient) -> None:
-        mock_begin.return_value = ('{"rp":"localhost"}', b"\xDE\xAD")
+    def test_register_begin_returns_options(
+        self, mock_begin: MagicMock, client: TestClient
+    ) -> None:
+        mock_begin.return_value = ('{"rp":"localhost"}', b"\xde\xad")
         resp = client.post("/auth/register/begin")
         assert resp.status_code == 200
         assert resp.json() == {"rp": "localhost"}
@@ -799,7 +868,9 @@ class TestWebAuthnRegisterComplete:
         assert "No pending challenge" in resp.json()["error"]
 
     @patch("hozo.api.routes.complete_registration")
-    def test_register_complete_exception_returns_400(self, mock_complete: MagicMock, client: TestClient) -> None:
+    def test_register_complete_exception_returns_400(
+        self, mock_complete: MagicMock, client: TestClient
+    ) -> None:
         from hozo.auth.webauthn_helpers import store_challenge
 
         challenge = b"\x05\x06\x07\x08"
@@ -807,7 +878,7 @@ class TestWebAuthnRegisterComplete:
         mock_complete.side_effect = Exception("Invalid CBOR")
         resp = client.post(
             "/auth/register/complete",
-            content=b'{"id":"bad"}',
+            content=_webauthn_body(challenge, cred_id="bad"),
             headers={"x-device-name": "My Key"},
         )
         assert resp.status_code == 400
@@ -828,7 +899,7 @@ class TestWebAuthnRegisterComplete:
         mock_complete.return_value = new_cred
         resp = client.post(
             "/auth/register/complete",
-            content=b'{"id":"ok"}',
+            content=_webauthn_body(challenge, cred_id="ok"),
             headers={"x-device-name": "New Key"},
         )
         assert resp.status_code == 200
@@ -855,7 +926,7 @@ class TestWebAuthnDeviceDelete:
         ):
             app = create_app(config_path=str(config_path))
             cred = StoredCredential(
-                credential_id=b"\xAA\xBB\xCC",
+                credential_id=b"\xaa\xbb\xcc",
                 public_key=b"\x01\x02\x03",
                 sign_count=0,
                 device_name="To Delete",
@@ -871,21 +942,19 @@ class TestWebAuthnDeviceDelete:
     def test_delete_device_removes_credential(self, authed_client: TestClient) -> None:
         import base64
 
-        cred_id = base64.urlsafe_b64encode(b"\xAA\xBB\xCC").decode().rstrip("=")
+        cred_id = base64.urlsafe_b64encode(b"\xaa\xbb\xcc").decode().rstrip("=")
         assert len(authed_client.app.state.auth["credentials"]) == 1
-        resp = authed_client.post(
-            f"/auth/devices/{cred_id}/delete", follow_redirects=False
-        )
+        resp = authed_client.post(f"/auth/devices/{cred_id}/delete", follow_redirects=False)
         assert resp.status_code == 303
         assert authed_client.app.state.auth["credentials"] == []
 
-    def test_delete_nonexistent_device_leaves_list_unchanged(self, authed_client: TestClient) -> None:
+    def test_delete_nonexistent_device_leaves_list_unchanged(
+        self, authed_client: TestClient
+    ) -> None:
         import base64
 
-        wrong_id = base64.urlsafe_b64encode(b"\xFF\xFF\xFF").decode().rstrip("=")
-        resp = authed_client.post(
-            f"/auth/devices/{wrong_id}/delete", follow_redirects=False
-        )
+        wrong_id = base64.urlsafe_b64encode(b"\xff\xff\xff").decode().rstrip("=")
+        resp = authed_client.post(f"/auth/devices/{wrong_id}/delete", follow_redirects=False)
         assert resp.status_code == 303
         # Original credential still present
         assert len(authed_client.app.state.auth["credentials"]) == 1
@@ -903,33 +972,42 @@ class TestPartialJobsRoute:
         assert "text/html" in resp.headers["content-type"]
 
 
-class TestDetectOriginWithHeader:
-    """Cover _detect_origin when origin header is present (line 210)."""
+class TestExpectedOriginIsServerComputed:
+    """The WebAuthn expected_origin must come from server config, NOT the
+    attacker-controllable Origin header."""
 
     @patch("hozo.api.routes.complete_registration")
-    def test_register_complete_uses_origin_header(
+    def test_register_complete_computes_origin_from_rp_id(
         self, mock_complete: MagicMock, client: TestClient
     ) -> None:
         from hozo.auth.webauthn_helpers import StoredCredential, store_challenge
 
-        challenge = b"\x09\x0A\x0B\x0C"
+        client.app.state.auth["rp_id"] = "myhost.example.com"
+        challenge = b"\x09\x0a\x0b\x0c"
         store_challenge(client.app.state.pending_challenges, challenge)
-        new_cred = StoredCredential(
+        mock_complete.return_value = StoredCredential(
             credential_id=b"\x30\x31\x32",
             public_key=b"\x40\x41\x42",
             sign_count=0,
             device_name="Origin Key",
         )
-        mock_complete.return_value = new_cred
+        # No Origin header → CSRF passes; origin must be derived from rp_id.
         resp = client.post(
             "/auth/register/complete",
-            content=b'{"id":"ok"}',
-            headers={"x-device-name": "Origin Key", "origin": "https://myhost.example.com"},
+            content=_webauthn_body(challenge, cred_id="ok"),
+            headers={"x-device-name": "Origin Key"},
         )
         assert resp.status_code == 200
-        # Confirm origin was passed to complete_registration
-        call_kwargs = mock_complete.call_args
-        assert call_kwargs.args[3] == "https://myhost.example.com"
+        assert mock_complete.call_args.args[3] == "https://myhost.example.com"
+
+    def test_cross_origin_post_is_rejected(self, client: TestClient) -> None:
+        # A forged cross-site POST carries a mismatched Origin → 403.
+        resp = client.post(
+            "/auth/register/complete",
+            content=b"{}",
+            headers={"origin": "https://evil.example.com"},
+        )
+        assert resp.status_code == 403
 
 
 class TestLoginCompleteNonMatchingCred:
@@ -948,13 +1026,13 @@ class TestLoginCompleteNonMatchingCred:
         ):
             app = create_app(config_path=str(config_path))
             cred1 = StoredCredential(
-                credential_id=b"\xAA\xBB",
+                credential_id=b"\xaa\xbb",
                 public_key=b"\x01\x02",
                 sign_count=0,
                 device_name="Key1",
             )
             cred2 = StoredCredential(
-                credential_id=b"\xCC\xDD",
+                credential_id=b"\xcc\xdd",
                 public_key=b"\x03\x04",
                 sign_count=0,
                 device_name="Key2",
@@ -972,15 +1050,15 @@ class TestLoginCompleteNonMatchingCred:
         store_challenge(multi_cred_client.app.state.pending_challenges, challenge)
         # Return an updated version of cred1 (b"\xAA\xBB")
         updated = StoredCredential(
-            credential_id=b"\xAA\xBB",
+            credential_id=b"\xaa\xbb",
             public_key=b"\x01\x02",
             sign_count=1,
             device_name="Key1",
         )
         mock_complete.return_value = updated
-        resp = multi_cred_client.post("/auth/login/complete", content=b'{"id":"x"}')
+        resp = multi_cred_client.post("/auth/login/complete", content=_webauthn_body(challenge))
         assert resp.status_code == 200
-        # cred1 updated, cred2 kept as-is (the else branch at line 571)
+        # cred1 updated, cred2 kept as-is (the else branch)
         saved = multi_cred_client.app.state.auth["credentials"]
         assert len(saved) == 2
 
@@ -989,7 +1067,7 @@ class TestLoadJobsSchedulerEdgeCases:
     """Cover _load_jobs_and_scheduler when config file is deleted or empty."""
 
     def test_save_config_when_load_config_empty(self, tmp_path: Path) -> None:
-        """Covers line 122: load_config returns empty dict → early return in _load_jobs_and_scheduler."""
+        """Empty config → early return in _load_jobs_and_scheduler (no scheduler)."""
         from hozo.api.routes import create_app
 
         config_path = _write_config(tmp_path)
@@ -1004,6 +1082,7 @@ class TestLoadJobsSchedulerEdgeCases:
             # return {} to trigger the "if not raw: return" branch
             if call_count <= 1:
                 import yaml
+
                 with open(path) as f:
                     return yaml.safe_load(f) or {}
             return {}
@@ -1058,7 +1137,7 @@ class TestLoadJobsSchedulerEdgeCases:
         ):
             app = create_app(config_path=str(config_path))
             cred = StoredCredential(
-                credential_id=b"\xAA\xBB\xCC",
+                credential_id=b"\xaa\xbb\xcc",
                 public_key=b"\x01\x02\x03",
                 sign_count=7,
                 device_name="My Yubikey",
@@ -1120,3 +1199,94 @@ class TestOnResultCallback:
         )
         captured_callback(result)
         assert app.state.last_results["weekly"] is result
+
+
+def _creds_client(tmp_path: Path) -> TestClient:
+    """A client whose app already has one registered credential (auth active)."""
+    from hozo.api.routes import create_app
+    from hozo.auth.webauthn_helpers import StoredCredential
+
+    config_path = _write_config(tmp_path)
+    with (
+        patch("hozo.scheduler.runner.HozoScheduler.start"),
+        patch("hozo.scheduler.runner.HozoScheduler.stop"),
+        patch("hozo.scheduler.runner.HozoScheduler.load_jobs_from_config", return_value=1),
+    ):
+        app = create_app(config_path=str(config_path))
+        cred = StoredCredential(
+            credential_id=b"\xaa\xbb",
+            public_key=b"\x01\x02",
+            sign_count=0,
+            device_name="HW Key",
+        )
+        app.state.auth["credentials"] = [cred.to_dict()]
+        return TestClient(app)
+
+
+class TestSecurityHardening:
+    def test_register_begin_gated_once_credential_exists(self, tmp_path: Path) -> None:
+        # Post-bootstrap, registering a new passkey requires an authed session.
+        client = _creds_client(tmp_path)
+        resp = client.post("/auth/register/begin", follow_redirects=False)
+        assert resp.status_code in (302, 401)
+
+    def test_login_next_open_redirect_is_sanitized(self, tmp_path: Path) -> None:
+        client = _creds_client(tmp_path)
+        resp = client.get("/auth/login?next=https://evil.example.com")
+        assert resp.status_code == 200
+        assert "https://evil.example.com" not in resp.text
+
+    def test_same_origin_post_is_allowed(self, client: TestClient) -> None:
+        # Matching Origin host passes the CSRF check (settings POST works).
+        resp = client.post(
+            "/settings",
+            data={"ssh_timeout": "30", "ssh_user": "root"},
+            headers={"origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+    def test_session_secret_regenerated_if_missing(self, tmp_path: Path) -> None:
+        from hozo.auth.webauthn_helpers import StoredCredential, store_challenge
+
+        client = _creds_client(tmp_path)
+        client.app.state.auth.pop("session_secret", None)
+        challenge = b"\x01\x02\x03\x04"
+        store_challenge(client.app.state.pending_challenges, challenge)
+        with patch("hozo.api.routes.complete_authentication") as mock_complete:
+            mock_complete.return_value = StoredCredential(
+                credential_id=b"\xaa\xbb",
+                public_key=b"\x01\x02",
+                sign_count=1,
+                device_name="HW Key",
+            )
+            resp = client.post("/auth/login/complete", content=_webauthn_body(challenge))
+        assert resp.status_code == 200
+        assert client.app.state.auth.get("session_secret")
+
+    def test_challenge_mismatch_rejected(self, tmp_path: Path) -> None:
+        from hozo.auth.webauthn_helpers import store_challenge
+
+        client = _creds_client(tmp_path)
+        store_challenge(client.app.state.pending_challenges, b"\xaa\xaa")
+        # Body echoes a different challenge than the one pending → 400.
+        resp = client.post("/auth/login/complete", content=_webauthn_body(b"\xbb\xbb"))
+        assert resp.status_code == 400
+
+    @patch("hozo.api.routes.complete_registration")
+    def test_configured_origin_override(self, mock_complete: MagicMock, client: TestClient) -> None:
+        from hozo.auth.webauthn_helpers import StoredCredential, store_challenge
+
+        client.app.state.auth["origin"] = "https://hozo.example:8443"
+        challenge = b"\x09\x0a\x0b\x0c"
+        store_challenge(client.app.state.pending_challenges, challenge)
+        mock_complete.return_value = StoredCredential(
+            credential_id=b"\x30", public_key=b"\x40", sign_count=0, device_name="K"
+        )
+        resp = client.post(
+            "/auth/register/complete",
+            content=_webauthn_body(challenge, cred_id="ok"),
+            headers={"x-device-name": "K"},
+        )
+        assert resp.status_code == 200
+        assert mock_complete.call_args.args[3] == "https://hozo.example:8443"

@@ -1,6 +1,7 @@
 """WebAuthn registration and authentication helpers for Hōzō."""
 
 import base64
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -58,6 +59,24 @@ def _b64url_decode(s: str) -> bytes:
     if padding != 4:
         s += "=" * padding
     return base64.urlsafe_b64decode(s)
+
+
+def challenge_from_credential_body(body: str) -> bytes:
+    """
+    Extract the challenge the browser echoed back inside clientDataJSON.
+
+    Binding each completion to the specific challenge the client used — rather
+    than assuming a single pending challenge — prevents cross-ceremony
+    confusion when more than one challenge is in flight (multiple tabs, an
+    attacker priming a challenge, etc.).
+
+    Raises:
+        Exception: if the body is malformed or lacks clientDataJSON.
+    """
+    outer = json.loads(body)
+    client_data_b64 = outer["response"]["clientDataJSON"]
+    client_data = json.loads(_b64url_decode(client_data_b64))
+    return _b64url_decode(client_data["challenge"])
 
 
 def begin_registration(

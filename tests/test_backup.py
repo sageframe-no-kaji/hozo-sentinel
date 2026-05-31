@@ -122,9 +122,7 @@ class TestRunRestoreSyncoid:
         """--force-delete should be absent when force_delete=False."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-        run_restore_syncoid(
-            "rpool/data", "backup.local", "backup/data", force_delete=False
-        )
+        run_restore_syncoid("rpool/data", "backup.local", "backup/data", force_delete=False)
 
         args = mock_run.call_args[0][0]
         assert "--force-delete" not in args
@@ -132,9 +130,7 @@ class TestRunRestoreSyncoid:
     @patch("hozo.core.backup.subprocess.run")
     def test_raises_syncoid_error_on_failure(self, mock_run: MagicMock) -> None:
         """Should raise SyncoidError when syncoid exits non-zero."""
-        mock_run.return_value = MagicMock(
-            returncode=1, stderr="dataset not found", stdout=""
-        )
+        mock_run.return_value = MagicMock(returncode=1, stderr="dataset not found", stdout="")
 
         with pytest.raises(SyncoidError) as exc_info:
             run_restore_syncoid("rpool/data", "backup.local", "backup/data")

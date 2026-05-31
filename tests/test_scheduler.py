@@ -304,7 +304,7 @@ class TestSchedulerEdgeCases:
         )
         scheduler = HozoScheduler()
         count = scheduler.load_jobs_from_config(path)
-        assert count == 0           # not registered with APScheduler
+        assert count == 0  # not registered with APScheduler
         assert len(scheduler.jobs) == 1  # but job object IS in the list
 
     @patch("hozo.scheduler.runner.run_job")

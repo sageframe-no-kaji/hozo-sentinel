@@ -33,6 +33,19 @@ settings:
     #   use_tls: true
 
 
+# ── Authentication (WebAuthn / passkeys) ─────────────────────
+# The web UI is unprotected until the first passkey is registered, then it
+# requires one. Set rp_id to the hostname exactly as it appears in your
+# browser's address bar (no scheme, no port) BEFORE registering a device —
+# changing it afterwards invalidates all credentials.
+auth:
+  # rp_id: hozo.tailnet.ts.net
+  rp_id: localhost
+  # session_secret is generated automatically on first boot and written back
+  # here. Leave it unset; do not share it — it signs session cookies.
+  # credentials: []   # populated as you register passkeys
+
+
 # ── Backup jobs ───────────────────────────────────────────────
 jobs:
 
