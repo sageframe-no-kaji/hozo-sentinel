@@ -106,7 +106,8 @@
     </div>
     <div class="space-y-2">
       {{ checkbox('Recursive (replicate child datasets)', 'recursive', job.recursive if job else True) }}
-      {{ checkbox('Shutdown remote host after backup', 'shutdown_after', job.shutdown_after if job else True) }}
+      {{ checkbox('Shutdown remote host after backup', 'shutdown_after', job.shutdown_after if job else True,
+                  hint='Powers the box off over SSH when the backup finishes. Leave unchecked if the box runs 24/7.') }}
       {{ checkbox('No privilege elevation (skip sudo on syncoid)', 'no_privilege_elevation',
                   job.no_privilege_elevation if job else False) }}
     </div>
@@ -123,7 +124,7 @@
       {{ field('Backup drive device', 'backup_device',
                job.backup_device if (job and job.backup_device) else '',
                placeholder='/dev/sdb  (leave blank if not applicable)',
-               hint='Block device path on the remote backup machine.') }}
+               hint='Block device on the remote box. Hōzō wakes a spun-down drive over SSH before syncing (it does not spin it down — configure that on the box).') }}
       {{ field('Spin-up timeout (s)', 'disk_spinup_timeout',
                job.disk_spinup_timeout if job else 90, type='number') }}
     </div>
