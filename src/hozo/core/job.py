@@ -303,7 +303,9 @@ def run_restore_job(job: BackupJob) -> JobResult:
     try:
         logger.warning(
             "=== RESTORE: %s:%s → local %s ===",
-            job.target_host, job.target_dataset, job.source_dataset,
+            job.target_host,
+            job.target_dataset,
+            job.source_dataset,
         )
 
         # ── Step 1: Wake ──────────────────────────────────────────────────────
@@ -330,7 +332,9 @@ def run_restore_job(job: BackupJob) -> JobResult:
         # ── Step 3: Restore ───────────────────────────────────────────────────
         logger.info(
             "Pulling %s:%s → %s (force-delete enabled)",
-            job.target_host, job.target_dataset, job.source_dataset,
+            job.target_host,
+            job.target_dataset,
+            job.source_dataset,
         )
         try:
             _, syncoid_output = run_restore_syncoid(

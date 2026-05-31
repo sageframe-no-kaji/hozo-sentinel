@@ -10,7 +10,6 @@ from click.testing import CliRunner
 from hozo.cli import main
 from hozo.core.job import JobResult
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -54,9 +53,7 @@ class TestLoadCfgErrors:
     """_load_cfg calls sys.exit(1) for bad configs; CliRunner captures that."""
 
     def test_missing_config_exits_1(self, tmp_path: Path) -> None:
-        result = CliRunner().invoke(
-            main, ["--config", str(tmp_path / "nope.yaml"), "jobs", "list"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(tmp_path / "nope.yaml"), "jobs", "list"])
         assert result.exit_code == 1
 
     def test_empty_config_exits_1(self, tmp_path: Path) -> None:
@@ -113,9 +110,7 @@ class TestJobsRun:
         mock_run.return_value = _ok_result()
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "jobs", "run", "weekly"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "jobs", "run", "weekly"])
         assert result.exit_code == 0
         assert "✓" in result.output or "completed" in result.output.lower()
 
@@ -127,17 +122,13 @@ class TestJobsRun:
         mock_run.return_value = _fail_result()
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "jobs", "run", "weekly"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "jobs", "run", "weekly"])
         assert result.exit_code == 2
 
     def test_unknown_job_exits_1(self, tmp_path: Path) -> None:
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "jobs", "run", "nonexistent"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "jobs", "run", "nonexistent"])
         assert result.exit_code == 1
 
     @patch("hozo.notifications.notify.send_notification")
@@ -177,9 +168,7 @@ class TestStatus:
         assert mock_cmd.called
 
     @patch("hozo.core.ssh.wait_for_ssh", return_value=False)
-    def test_ssh_unreachable_prints_error(
-        self, mock_wait: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_ssh_unreachable_prints_error(self, mock_wait: MagicMock, tmp_path: Path) -> None:
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
         result = CliRunner().invoke(main, ["--config", str(cfg), "status"])
@@ -193,17 +182,13 @@ class TestStatus:
     ) -> None:
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "status", "--job", "weekly"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "status", "--job", "weekly"])
         assert result.exit_code == 0
 
     def test_status_unknown_job_exits_1(self, tmp_path: Path) -> None:
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "status", "--job", "ghost"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "status", "--job", "ghost"])
         assert result.exit_code == 1
 
 
@@ -232,14 +217,10 @@ class TestWake:
 
 class TestShutdown:
     @patch("hozo.core.ssh.run_command", return_value=(0, "", ""))
-    def test_shutdown_valid_job_sends_command(
-        self, mock_cmd: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_shutdown_valid_job_sends_command(self, mock_cmd: MagicMock, tmp_path: Path) -> None:
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "shutdown", "weekly"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "shutdown", "weekly"])
         assert result.exit_code == 0
         assert mock_cmd.called
         assert "shutdown" in result.output.lower()
@@ -247,24 +228,18 @@ class TestShutdown:
     def test_shutdown_unknown_job_exits_1(self, tmp_path: Path) -> None:
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "shutdown", "ghost"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "shutdown", "ghost"])
         assert result.exit_code == 1
 
     @patch(
         "hozo.core.ssh.run_command",
         side_effect=Exception("Connection reset"),
     )
-    def test_shutdown_exception_is_graceful(
-        self, mock_cmd: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_shutdown_exception_is_graceful(self, mock_cmd: MagicMock, tmp_path: Path) -> None:
         """SSH raising (machine already off) should be caught and printed, not crash."""
         cfg = tmp_path / "config.yaml"
         _write_config(cfg)
-        result = CliRunner().invoke(
-            main, ["--config", str(cfg), "shutdown", "weekly"]
-        )
+        result = CliRunner().invoke(main, ["--config", str(cfg), "shutdown", "weekly"])
         assert result.exit_code == 0
         assert "Connection reset" in result.output or "shut down" in result.output.lower()
 
