@@ -60,6 +60,9 @@ def write_config(path: Path, config: dict[str, Any]) -> None:
                 allow_unicode=True,
                 sort_keys=False,
             )
+        # The config holds the session secret and notification credentials —
+        # restrict to owner-only before it becomes the live file.
+        os.chmod(tmp, 0o600)
         os.replace(tmp, path)
     except Exception:
         # Clean up temp file on failure

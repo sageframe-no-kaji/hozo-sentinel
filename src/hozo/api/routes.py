@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
+from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -29,6 +30,7 @@ from hozo.auth.webauthn_helpers import (
     StoredCredential,
     begin_authentication,
     begin_registration,
+    challenge_from_credential_body,
     complete_authentication,
     complete_registration,
     pop_challenge,
@@ -43,14 +45,36 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _API_PREFIXES = ("/status", "/results/", "/wake", "/run_backup", "/shutdown", "/disk/")
 
 _OPEN_PATHS = {
+    "/health",
     "/auth/login",
     "/auth/login/begin",
     "/auth/login/complete",
     "/auth/logout",
-    "/auth/register/begin",
-    "/auth/register/complete",
     "/favicon.ico",
 }
+
+
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+
+def _csrf_ok(request: Request) -> bool:
+    """
+    Reject cross-site state-changing requests via an Origin/Referer check.
+
+    A real CSRF attack rides in a victim's browser, which always attaches an
+    Origin (or at least a Referer) header to a cross-origin POST — so a
+    mismatching host is rejected.  When neither header is present the caller is
+    not a browser (curl, server-to-server), which is not a CSRF vector, so it
+    is allowed.  Pairs with the SameSite cookie as defense-in-depth.
+    """
+    if request.method in _SAFE_METHODS:
+        return True
+    host = request.url.hostname
+    for header in ("origin", "referer"):
+        value = request.headers.get(header)
+        if value:
+            return urlparse(value).hostname == host
+    return True
 
 
 class HozoAuthMiddleware(BaseHTTPMiddleware):
@@ -62,6 +86,9 @@ class HozoAuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         state = request.app.state
         creds: list[dict[str, Any]] = state.auth.get("credentials", [])
+
+        if not _csrf_ok(request):
+            return JSONResponse({"error": "CSRF check failed"}, status_code=403)
 
         if not creds:
             return await call_next(request)
@@ -204,12 +231,34 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     def _is_localhost(rp_id: str) -> bool:
         return rp_id in ("localhost", "127.0.0.1", "::1")
 
+    def _session_secret() -> str:
+        """Return the session-signing secret, materializing one if absent.
+
+        create_app seeds this at startup; this guards against a missing key
+        without the old generate-and-forget bug (which minted a different,
+        unverifiable secret on every login).
+        """
+        secret = app.state.auth.get("session_secret")
+        if not secret:
+            secret = generate_secret()
+            app.state.auth["session_secret"] = secret
+        return str(secret)
+
     def _detect_origin(request: Request, rp_id: str) -> str:
-        origin = request.headers.get("origin", "")
-        if origin:
-            return origin
-        scheme = "http" if _is_localhost(rp_id) else "https"
-        return f"{scheme}://{rp_id}"
+        """Compute the expected WebAuthn origin from server-side config.
+
+        The browser-supplied Origin header is NOT trusted in production — that
+        would defeat WebAuthn's anti-phishing origin check.  An explicit
+        auth.origin overrides (e.g. for a non-standard port behind a proxy).
+        On localhost (dev only, not a real RP) we accept the request origin so
+        the port matches.
+        """
+        configured = app.state.auth.get("origin")
+        if configured:
+            return str(configured)
+        if _is_localhost(rp_id):
+            return request.headers.get("origin") or f"http://{rp_id}"
+        return f"https://{rp_id}"
 
     def _save_config() -> None:
         # Sync mutable sub-dicts back into raw_config before writing.
@@ -223,6 +272,17 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         ctx.setdefault("is_authenticated", _is_authed(request))
         ctx.setdefault("credentials_exist", bool(creds))
         return templates.TemplateResponse(request, name, ctx)
+
+    # ── Liveness ──────────────────────────────────────────────────────────────
+
+    @app.get("/health")
+    async def health() -> JSONResponse:
+        """Unauthenticated liveness probe for the container healthcheck.
+
+        Kept separate from /status (which is auth-gated) so the healthcheck
+        keeps working after a passkey is registered.
+        """
+        return JSONResponse({"status": "ok"})
 
     # ── HTML Dashboard ────────────────────────────────────────────────────────
 
@@ -253,19 +313,26 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     async def get_settings(request: Request) -> HTMLResponse:
         s = app.state.settings
         auth = app.state.auth
+        # Notifications are stored nested under settings.notifications, matching
+        # what notifications.notify reads and what config.example documents.
+        notif = s.get("notifications", {})
+        smtp = notif.get("smtp", {})
         return _tpl(
             request,
             "settings.html",
             {
                 "ssh_timeout": s.get("ssh_timeout", 30),
                 "ssh_user": s.get("ssh_user", "root"),
-                "ntfy_url": s.get("ntfy_url", ""),
-                "pushover_user_key": s.get("pushover_user_key", ""),
-                "pushover_api_token": s.get("pushover_api_token", ""),
-                "smtp_host": s.get("smtp_host", ""),
-                "smtp_port": s.get("smtp_port", 587),
-                "smtp_user": s.get("smtp_user", ""),
-                "smtp_to": s.get("smtp_to", ""),
+                "ntfy_topic": notif.get("ntfy_topic", ""),
+                "pushover_token": notif.get("pushover_token", ""),
+                "pushover_user": notif.get("pushover_user", ""),
+                "smtp_host": smtp.get("host", ""),
+                "smtp_port": smtp.get("port", 587),
+                "smtp_user": smtp.get("user", ""),
+                "smtp_password": smtp.get("password", ""),
+                "smtp_from_addr": smtp.get("from_addr", ""),
+                "smtp_to_addr": smtp.get("to_addr", ""),
+                "smtp_use_tls": smtp.get("use_tls", True),
                 "rp_id": auth.get("rp_id", "localhost"),
                 "saved": False,
             },
@@ -277,20 +344,37 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         s = app.state.settings
         s["ssh_timeout"] = int(str(form.get("ssh_timeout", s.get("ssh_timeout", 30))))
         s["ssh_user"] = str(form.get("ssh_user", s.get("ssh_user", "root")))
-        if form.get("ntfy_url"):
-            s["ntfy_url"] = str(form["ntfy_url"])
-        if form.get("pushover_user_key"):
-            s["pushover_user_key"] = str(form["pushover_user_key"])
-        if form.get("pushover_api_token"):
-            s["pushover_api_token"] = str(form["pushover_api_token"])
-        if form.get("smtp_host"):
-            s["smtp_host"] = str(form["smtp_host"])
-        if form.get("smtp_port"):
-            s["smtp_port"] = int(str(form["smtp_port"]))
-        if form.get("smtp_user"):
-            s["smtp_user"] = str(form["smtp_user"])
-        if form.get("smtp_to"):
-            s["smtp_to"] = str(form["smtp_to"])
+
+        # Rebuild the notifications block from the form — the settings page
+        # always submits every channel field, so a save reflects full intent.
+        # Keys match notifications.notify (ntfy_topic / pushover_* / smtp{...}).
+        notif: dict[str, Any] = {}
+        if str(form.get("ntfy_topic", "")).strip():
+            notif["ntfy_topic"] = str(form["ntfy_topic"]).strip()
+        if str(form.get("pushover_token", "")).strip():
+            notif["pushover_token"] = str(form["pushover_token"]).strip()
+        if str(form.get("pushover_user", "")).strip():
+            notif["pushover_user"] = str(form["pushover_user"]).strip()
+        if str(form.get("smtp_host", "")).strip():
+            smtp: dict[str, Any] = {
+                "host": str(form["smtp_host"]).strip(),
+                "port": int(str(form.get("smtp_port") or 587)),
+                "use_tls": "smtp_use_tls" in form,
+            }
+            for field_name, key in (
+                ("smtp_user", "user"),
+                ("smtp_password", "password"),
+                ("smtp_from_addr", "from_addr"),
+                ("smtp_to_addr", "to_addr"),
+            ):
+                if str(form.get(field_name, "")).strip():
+                    smtp[key] = str(form[field_name]).strip()
+            notif["smtp"] = smtp
+        if notif:
+            s["notifications"] = notif
+        else:
+            s.pop("notifications", None)
+
         rp_id = str(form.get("rp_id", app.state.auth.get("rp_id", "localhost")))
         app.state.auth["rp_id"] = rp_id
         app.state.raw_config["settings"] = s
@@ -502,9 +586,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         return RedirectResponse(f"/jobs/{job_name}/restore/log", status_code=303)
 
     @app.get("/jobs/{job_name}/restore/log", response_class=HTMLResponse)
-    async def get_restore_log(
-        request: Request, job_name: str
-    ) -> HTMLResponse:
+    async def get_restore_log(request: Request, job_name: str) -> HTMLResponse:
         result = app.state.last_restore_results.get(job_name)
         log_lines = list(result.log_lines) if result else []
         return _tpl(
@@ -514,9 +596,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         )
 
     @app.get("/jobs/{job_name}/restore/log/lines", response_class=HTMLResponse)
-    async def get_restore_log_lines(
-        request: Request, job_name: str
-    ) -> HTMLResponse:
+    async def get_restore_log_lines(request: Request, job_name: str) -> HTMLResponse:
         result = app.state.last_restore_results.get(job_name)
         log_lines = list(result.log_lines) if result else []
         return templates.TemplateResponse(
@@ -531,6 +611,9 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         if not creds:
             return RedirectResponse("/auth/register", status_code=302)
         next_url = request.query_params.get("next", "/")
+        # Only allow same-origin relative paths to prevent open-redirect.
+        if not next_url.startswith("/") or next_url.startswith("//"):
+            next_url = "/"
         return _tpl(request, "auth/login.html", {"next": next_url, "has_credentials": True})
 
     @app.post("/auth/login/begin")
@@ -549,14 +632,12 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         stored = [StoredCredential.from_dict(c) for c in creds]
         rp_id = app.state.auth.get("rp_id", "localhost")
         origin = _detect_origin(request, rp_id)
-        import base64
 
-        # Find matching challenge — use the only pending one
         if not app.state.pending_challenges:
             return JSONResponse({"error": "No pending challenge"}, status_code=400)
-        challenge = list(app.state.pending_challenges.keys())[0]
-        challenge_bytes = base64.urlsafe_b64decode(challenge + "==")
         try:
+            # Bind to the challenge the client actually used, not "the only one".
+            challenge_bytes = challenge_from_credential_body(body.decode())
             pop_challenge(app.state.pending_challenges, challenge_bytes)
             updated = complete_authentication(body.decode(), challenge_bytes, rp_id, origin, stored)
         except Exception as exc:
@@ -571,14 +652,13 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
                 new_creds.append(c)
         app.state.auth["credentials"] = new_creds
         _save_config()
-        secret = app.state.auth.get("session_secret", generate_secret())
-        cookie_val = make_session_cookie(secret)
+        cookie_val = make_session_cookie(_session_secret())
         resp = JSONResponse({"status": "ok"})
         resp.set_cookie(
             COOKIE_NAME,
             cookie_val,
             httponly=True,
-            samesite="lax",
+            samesite="strict",
             secure=not _is_localhost(rp_id),
             max_age=86400,
         )
@@ -613,11 +693,9 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         device_name = request.headers.get("x-device-name", "My Device")
         if not app.state.pending_challenges:
             return JSONResponse({"error": "No pending challenge"}, status_code=400)
-        challenge_key = list(app.state.pending_challenges.keys())[0]
-        import base64
-
-        challenge_bytes = base64.urlsafe_b64decode(challenge_key + "==")
         try:
+            # Bind to the challenge the client actually used, not "the only one".
+            challenge_bytes = challenge_from_credential_body(body.decode())
             pop_challenge(app.state.pending_challenges, challenge_bytes)
             cred = complete_registration(body.decode(), challenge_bytes, rp_id, origin, device_name)
         except Exception as exc:
