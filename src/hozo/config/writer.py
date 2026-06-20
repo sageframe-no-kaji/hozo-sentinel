@@ -38,12 +38,28 @@ def job_to_raw(job: BackupJob) -> dict[str, Any]:
     return d
 
 
+def _dump_yaml(f: Any, config: dict[str, Any]) -> None:
+    yaml.dump(
+        config,
+        f,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
+
+
 def write_config(path: Path, config: dict[str, Any]) -> None:
     """
-    Atomically write a config dict to a YAML file.
+    Write a config dict to a YAML file, atomically when possible.
 
-    Uses a temp-file + os.replace so a crash mid-write never leaves a
+    Default path: temp-file + os.replace so a crash mid-write never leaves a
     half-written file.
+
+    Fallback for single-file bind mounts (Docker mounts config.yaml directly,
+    not its parent directory): os.replace from a sibling temp file fails
+    because the target is the mount point itself.  In that case fall back to
+    an in-place truncate-and-write — non-atomic, but the only option when the
+    parent directory inside the container isn't writable as a whole.
 
     Args:
         path: Destination config.yaml path.
@@ -52,18 +68,28 @@ def write_config(path: Path, config: dict[str, Any]) -> None:
     tmp = path.with_suffix(".yaml.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Stage the new contents in tmp first. A failure here (disk full,
+        # yaml encoding error) must not touch the live file.
         with open(tmp, "w", encoding="utf-8") as f:
-            yaml.dump(
-                config,
-                f,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
+            _dump_yaml(f, config)
         # The config holds the session secret and notification credentials —
         # restrict to owner-only before it becomes the live file.
         os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            # Single-file bind mount or cross-device rename — atomic replace
+            # is not available. Fall back to copying tmp's contents over the
+            # existing inode in place. Less crash-safe than atomic replace,
+            # but tmp is fully written and validated by this point, so the
+            # window where path is partially written is just the copy itself.
+            with open(tmp, "rb") as src, open(path, "wb") as dst:
+                dst.write(src.read())
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass  # chmod may not be supported on the mounted FS
+            tmp.unlink(missing_ok=True)
     except Exception:
         # Clean up temp file on failure
         if tmp.exists():

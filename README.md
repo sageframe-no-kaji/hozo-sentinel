@@ -417,6 +417,26 @@ Set `auth.rp_id` to the hostname you use in the browser (e.g. `192.168.1.10` or 
 
 > Connections over plain HTTP require `rp_id` to be `localhost`, `127.0.0.1`, or `::1`. For any other hostname you **must** use HTTPS.
 
+### Docker: the config-file mount is intentionally narrow
+
+`docker-compose.yml` bind-mounts `/opt/services/hozo/configs/config.yaml` directly — the *file*, not its parent directory. The container can read and write that single file (the Settings page needs to persist changes, the bootstrap path needs to seed `auth.session_secret`) but cannot see or touch sibling files in `/opt/services/hozo/configs/`. If you keep operator backups (`config.yaml.bak`, exported snapshots, etc.) in that directory, they remain invisible to the container — so a compromised web tier cannot exfiltrate them or write a malicious passkey credential anywhere outside `config.yaml` itself.
+
+Residual risk: a compromised web tier can still append a passkey credential to `config.yaml` and lock the operator out. Mitigations:
+- Keep `config.yaml` under host-side version control or snapshot it (e.g., Sanoid on the ZFS dataset) so you can roll back.
+- Treat `config.yaml` as a sensitive file (`chmod 600`, owner-only).
+
+### Non-standard ports
+
+Hōzō computes the expected passkey origin as `https://<rp_id>` by default. If you serve the UI on a non-standard port (Caddy on `:8443`, an internal reverse-proxy on `:8080`, etc.) the browser will send the full `https://host:port` URL and registration/login will fail with an opaque "origin mismatch" error.
+
+Override by setting `auth.origin` in `config.yaml`:
+
+```yaml
+auth:
+  rp_id: hozo.tailnet.ts.net
+  origin: https://hozo.tailnet.ts.net:8443
+```
+
 ---
 
 ## Requirements

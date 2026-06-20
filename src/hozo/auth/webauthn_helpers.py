@@ -225,6 +225,27 @@ def store_challenge(
     pending[key] = (challenge, now + CHALLENGE_TTL)
 
 
+def verify_challenge_pending(
+    pending: dict[str, tuple[bytes, float]],
+    challenge: bytes,
+) -> None:
+    """Raise if the challenge is not in pending or has expired.
+
+    Does NOT consume the challenge — call ``pop_challenge`` only after the
+    WebAuthn verification succeeds, so a failed verify leaves the challenge
+    available for an immediate retry instead of forcing a new ``begin``.
+    Expired entries are cleaned up as a side-effect.
+    """
+    key = base64.urlsafe_b64encode(challenge).decode()
+    entry = pending.get(key)
+    if entry is None:
+        raise ValueError("Challenge not found or already used")
+    _, expires_at = entry
+    if time.monotonic() > expires_at:
+        pending.pop(key, None)
+        raise ValueError("Challenge expired")
+
+
 def pop_challenge(
     pending: dict[str, tuple[bytes, float]],
     challenge: bytes,

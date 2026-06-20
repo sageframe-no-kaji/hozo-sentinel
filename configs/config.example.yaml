@@ -45,6 +45,14 @@ auth:
   # here. Leave it unset; do not share it — it signs session cookies.
   # credentials: []   # populated as you register passkeys
 
+  # origin (advanced): the full URL the browser sees when loading Hōzō.
+  # Default is "https://{rp_id}". Set this only if Hōzō is served on a
+  # non-standard port (Caddy on :8443, etc.) or via http behind a TLS
+  # terminator — the browser sends the full https://host:port URL inside
+  # the passkey response and WebAuthn rejects a mismatch with an opaque
+  # "origin mismatch" error.
+  # origin: https://hozo.tailnet.ts.net:8443
+
 
 # ── Backup jobs ───────────────────────────────────────────────
 jobs:

@@ -35,6 +35,7 @@ from hozo.auth.webauthn_helpers import (
     complete_registration,
     pop_challenge,
     store_challenge,
+    verify_challenge_pending,
 )
 from hozo.core.job import JobResult
 
@@ -54,31 +55,14 @@ _OPEN_PATHS = {
 }
 
 
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
-
-
-def _csrf_ok(request: Request) -> bool:
-    """
-    Reject cross-site state-changing requests via an Origin/Referer check.
-
-    A real CSRF attack rides in a victim's browser, which always attaches an
-    Origin (or at least a Referer) header to a cross-origin POST — so a
-    mismatching host is rejected.  When neither header is present the caller is
-    not a browser (curl, server-to-server), which is not a CSRF vector, so it
-    is allowed.  Pairs with the SameSite cookie as defense-in-depth.
-    """
-    if request.method in _SAFE_METHODS:
-        return True
-    host = request.url.hostname
-    for header in ("origin", "referer"):
-        value = request.headers.get(header)
-        if value:
-            return urlparse(value).hostname == host
-    return True
-
-
 class HozoAuthMiddleware(BaseHTTPMiddleware):
-    """Block unauthenticated requests once any WebAuthn credential is registered."""
+    """Block unauthenticated requests once any WebAuthn credential is registered.
+
+    Cross-site forgery is blocked by the session cookie's SameSite=Strict
+    attribute (set in post_login_complete): browsers won't attach the cookie
+    to any cross-origin request, so a malicious page can't ride the user's
+    session. No separate CSRF token is required.
+    """
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -86,9 +70,6 @@ class HozoAuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         state = request.app.state
         creds: list[dict[str, Any]] = state.auth.get("credentials", [])
-
-        if not _csrf_ok(request):
-            return JSONResponse({"error": "CSRF check failed"}, status_code=403)
 
         if not creds:
             return await call_next(request)
@@ -180,12 +161,24 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
             auth_seed["session_secret"] = generate_secret()
             raw_seed["auth"] = auth_seed
             write_config(_config_path, raw_seed)
+        # Populate in-memory auth from the seeded snapshot before
+        # _load_jobs_and_scheduler runs — that helper may early-return on
+        # a stale or empty reload, which would otherwise leave app.state.auth
+        # empty and break the session-secret invariant below.
+        app.state.auth = auth_seed
         _load_jobs_and_scheduler()
     else:
         # Bootstrap: no config file yet — seed a session secret in memory
         # so the first credential save has a stable secret to write.
         app.state.auth["session_secret"] = generate_secret()
         logger.warning("Config not found at %s — running without jobs", _config_path)
+
+    # Invariant: every code path that issues or verifies a session cookie
+    # depends on auth.session_secret being present. If it isn't here, the
+    # bootstrap above is broken — fail fast rather than silently minting a
+    # different secret per process that invalidates cookies on every restart.
+    if not app.state.auth.get("session_secret"):
+        raise RuntimeError("auth.session_secret was not seeded during startup — check create_app")
 
     app.add_middleware(HozoAuthMiddleware)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -232,17 +225,8 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         return rp_id in ("localhost", "127.0.0.1", "::1")
 
     def _session_secret() -> str:
-        """Return the session-signing secret, materializing one if absent.
-
-        create_app seeds this at startup; this guards against a missing key
-        without the old generate-and-forget bug (which minted a different,
-        unverifiable secret on every login).
-        """
-        secret = app.state.auth.get("session_secret")
-        if not secret:
-            secret = generate_secret()
-            app.state.auth["session_secret"] = secret
-        return str(secret)
+        """Return the session-signing secret seeded by create_app."""
+        return str(app.state.auth["session_secret"])
 
     def _detect_origin(request: Request, rp_id: str) -> str:
         """Compute the expected WebAuthn origin from server-side config.
@@ -266,6 +250,13 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         app.state.raw_config["auth"] = app.state.auth
         write_config(app.state.config_path, app.state.raw_config)
         _load_jobs_and_scheduler()
+
+    def _save_auth() -> None:
+        # Persist auth-section changes (sign counts, credentials, secret) without
+        # tearing down and rebuilding the scheduler — a login must not interrupt
+        # an in-flight backup or block on scheduler.stop().
+        app.state.raw_config["auth"] = app.state.auth
+        write_config(app.state.config_path, app.state.raw_config)
 
     def _tpl(request: Request, name: str, ctx: dict[str, Any]) -> HTMLResponse:
         creds = app.state.auth.get("credentials", [])
@@ -612,7 +603,17 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
             return RedirectResponse("/auth/register", status_code=302)
         next_url = request.query_params.get("next", "/")
         # Only allow same-origin relative paths to prevent open-redirect.
-        if not next_url.startswith("/") or next_url.startswith("//"):
+        # Browsers normalize "\" to "/" inside URLs, so "/\\evil.com" parses
+        # as protocol-relative — reject any backslash, any URL with a scheme
+        # or host, and require a leading "/".
+        parsed = urlparse(next_url)
+        if (
+            not next_url.startswith("/")
+            or next_url.startswith("//")
+            or "\\" in next_url
+            or parsed.scheme
+            or parsed.netloc
+        ):
             next_url = "/"
         return _tpl(request, "auth/login.html", {"next": next_url, "has_credentials": True})
 
@@ -633,15 +634,17 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         rp_id = app.state.auth.get("rp_id", "localhost")
         origin = _detect_origin(request, rp_id)
 
-        if not app.state.pending_challenges:
-            return JSONResponse({"error": "No pending challenge"}, status_code=400)
         try:
             # Bind to the challenge the client actually used, not "the only one".
             challenge_bytes = challenge_from_credential_body(body.decode())
-            pop_challenge(app.state.pending_challenges, challenge_bytes)
+            verify_challenge_pending(app.state.pending_challenges, challenge_bytes)
             updated = complete_authentication(body.decode(), challenge_bytes, rp_id, origin, stored)
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
+        # Consume the challenge only after successful verification, so a
+        # transient verify failure (sign-count regression, clock skew) leaves
+        # the challenge available for the browser's immediate retry.
+        pop_challenge(app.state.pending_challenges, challenge_bytes)
         # Persist updated sign count
         new_creds = []
         for c in creds:
@@ -651,7 +654,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
             else:
                 new_creds.append(c)
         app.state.auth["credentials"] = new_creds
-        _save_config()
+        _save_auth()
         cookie_val = make_session_cookie(_session_secret())
         resp = JSONResponse({"status": "ok"})
         resp.set_cookie(
@@ -691,19 +694,19 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         rp_id = app.state.auth.get("rp_id", "localhost")
         origin = _detect_origin(request, rp_id)
         device_name = request.headers.get("x-device-name", "My Device")
-        if not app.state.pending_challenges:
-            return JSONResponse({"error": "No pending challenge"}, status_code=400)
         try:
             # Bind to the challenge the client actually used, not "the only one".
             challenge_bytes = challenge_from_credential_body(body.decode())
-            pop_challenge(app.state.pending_challenges, challenge_bytes)
+            verify_challenge_pending(app.state.pending_challenges, challenge_bytes)
             cred = complete_registration(body.decode(), challenge_bytes, rp_id, origin, device_name)
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
+        # Consume the challenge only on success — see note in post_login_complete.
+        pop_challenge(app.state.pending_challenges, challenge_bytes)
         existing = app.state.auth.get("credentials", [])
         existing.append(cred.to_dict())
         app.state.auth["credentials"] = existing
-        _save_config()
+        _save_auth()
         return JSONResponse({"status": "registered", "device": device_name})
 
     # ── Auth: devices ─────────────────────────────────────────────────────────
@@ -728,14 +731,14 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
 
     @app.post("/auth/devices/{cred_id}/delete")
     async def post_device_delete(cred_id: str, request: Request) -> RedirectResponse:
-        import base64
+        from hozo.auth.webauthn_helpers import _b64url_decode
 
-        target = base64.urlsafe_b64decode(cred_id + "==")
+        target = _b64url_decode(cred_id)
         existing = app.state.auth.get("credentials", [])
         app.state.auth["credentials"] = [
             c for c in existing if StoredCredential.from_dict(c).credential_id != target
         ]
-        _save_config()
+        _save_auth()
         return RedirectResponse("/auth/devices", status_code=303)
 
     return app

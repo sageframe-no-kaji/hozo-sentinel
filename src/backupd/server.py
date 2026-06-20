@@ -99,16 +99,30 @@ async def status(_: None = Depends(require_token)) -> dict[str, Any]:
 @app.post("/shutdown")
 async def shutdown_endpoint(request: Request, _: None = Depends(require_token)) -> JSONResponse:
     """
-    Initiate a safe shutdown.  Exports ZFS pools then powers off.
-    The HTTP response is sent before the machine goes down.
+    Schedule a safe shutdown.  Exports ZFS pools, then powers off.
+
+    Returns 202 Accepted: the HTTP response is sent before the machine goes
+    down, and ``safe_shutdown`` runs in a background thread.  The 202 is an
+    honest "scheduled" — failures (e.g. the ``shutdown`` binary is missing)
+    are logged at ERROR level in backupd's log, since the client connection
+    has already been closed by the time they happen.
     """
     logger.info("Shutdown request received from %s", request.client)
-    # Run the actual shutdown in a background thread so the HTTP response
-    # can be returned before the process is killed.
-    t = threading.Thread(target=safe_shutdown, kwargs={"export_pools": True, "delay_seconds": 2})
+
+    def _run_shutdown() -> None:
+        if not safe_shutdown(export_pools=True, delay_seconds=2):
+            logger.error("safe_shutdown returned False — machine is still up")
+
+    t = threading.Thread(target=_run_shutdown)
     t.daemon = True
     t.start()
-    return JSONResponse({"status": "shutdown_initiated"})
+    return JSONResponse(
+        {
+            "status": "scheduled",
+            "detail": "shutdown scheduled; check backupd logs for failures",
+        },
+        status_code=202,
+    )
 
 
 @app.get("/disk/{device}")

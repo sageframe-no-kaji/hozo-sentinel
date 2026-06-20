@@ -141,6 +141,24 @@ class TestWriteConfigException:
         assert p.read_text() == "original: data"
 
 
+class TestWriteConfigSingleFileMountFallback:
+    def test_in_place_fallback_when_replace_fails(self, tmp_path: Path) -> None:
+        """When os.replace fails (single-file bind mount, cross-device rename),
+        write_config falls back to copying tmp's contents into the existing
+        file in place."""
+        from unittest.mock import patch
+
+        p = tmp_path / "config.yaml"
+        p.write_text("old: data")
+        with patch("hozo.config.writer.os.replace", side_effect=OSError("EXDEV")):
+            write_config(p, {"jobs": [], "auth": {"session_secret": "abcd"}})
+        # File contents replaced via the fallback path.
+        text = p.read_text()
+        assert "session_secret: abcd" in text
+        # Temp file cleaned up.
+        assert not (p.parent / (p.name + ".tmp")).exists()
+
+
 class TestConfigPermissions:
     def test_config_written_owner_only(self, tmp_path: Path) -> None:
         import os

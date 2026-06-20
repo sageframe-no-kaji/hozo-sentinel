@@ -8,7 +8,11 @@
   {% endif %}
 </div>
 
-<form method="post" action="/settings" class="space-y-6">
+<form method="post" action="/settings" class="space-y-6"
+      data-prev-ntfy="{{ ntfy_topic }}"
+      data-prev-pushover="{{ pushover_token }}"
+      data-prev-smtp="{{ smtp_host }}"
+      onsubmit="return confirmNotificationClears(this);">
 
   <!-- General -->
   <div class="card p-5">
@@ -128,4 +132,24 @@
   </div>
 
 </form>
+
+<script>
+  // Warn before saving Settings if a previously-populated notification channel
+  // has been blanked out — clearing smtp_host on the form drops the password
+  // and addresses along with it (the server replaces the whole notifications
+  // block on save). Server-side semantics are unchanged.
+  function confirmNotificationClears(form) {
+    var cleared = [];
+    function check(prev, currentName, label) {
+      var current = (form.elements[currentName] || {}).value || "";
+      if (prev && !current.trim()) cleared.push(label);
+    }
+    check(form.dataset.prevNtfy, "ntfy_topic", "ntfy.sh topic");
+    check(form.dataset.prevPushover, "pushover_token", "Pushover");
+    check(form.dataset.prevSmtp, "smtp_host", "SMTP / Email (password and addresses will be deleted)");
+    if (!cleared.length) return true;
+    return confirm("You're about to clear:\n\n  • " + cleared.join("\n  • ") +
+      "\n\nThese channels will be removed from config.yaml. Continue?");
+  }
+</script>
 {% endblock %}

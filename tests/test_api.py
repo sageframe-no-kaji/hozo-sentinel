@@ -804,11 +804,13 @@ class TestWebAuthnLoginComplete:
     def test_login_complete_no_pending_challenge_returns_400(
         self, authed_client: TestClient
     ) -> None:
-        # No pending challenges seeded
+        # Well-formed body, but the referenced challenge is not in pending.
         assert not authed_client.app.state.pending_challenges
-        resp = authed_client.post("/auth/login/complete", content=b'{"id":"abc"}')
+        resp = authed_client.post(
+            "/auth/login/complete", content=_webauthn_body(b"\x99\x99\x99\x99")
+        )
         assert resp.status_code == 400
-        assert "No pending challenge" in resp.json()["error"]
+        assert "Challenge not found" in resp.json()["error"]
 
     @patch("hozo.api.routes.complete_authentication")
     def test_login_complete_exception_returns_400(
@@ -841,7 +843,11 @@ class TestWebAuthnLoginComplete:
         resp = authed_client.post("/auth/login/complete", content=_webauthn_body(challenge))
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
-        assert "hozo_session" in resp.cookies or resp.headers.get("set-cookie")
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "hozo_session" in set_cookie
+        # SameSite=Strict on the session cookie is what blocks cross-site
+        # forgery; the server has no separate CSRF token check.
+        assert "samesite=strict" in set_cookie.lower()
 
 
 class TestWebAuthnRegisterBegin:
@@ -863,9 +869,9 @@ class TestWebAuthnRegisterComplete:
 
     def test_register_complete_no_challenge_returns_400(self, client: TestClient) -> None:
         assert not client.app.state.pending_challenges
-        resp = client.post("/auth/register/complete", content=b'{"id":"abc"}')
+        resp = client.post("/auth/register/complete", content=_webauthn_body(b"\x99\x99\x99\x99"))
         assert resp.status_code == 400
-        assert "No pending challenge" in resp.json()["error"]
+        assert "Challenge not found" in resp.json()["error"]
 
     @patch("hozo.api.routes.complete_registration")
     def test_register_complete_exception_returns_400(
@@ -991,7 +997,8 @@ class TestExpectedOriginIsServerComputed:
             sign_count=0,
             device_name="Origin Key",
         )
-        # No Origin header → CSRF passes; origin must be derived from rp_id.
+        # Expected origin must be derived from rp_id, not from any
+        # browser-supplied Origin header (the latter is attacker-controllable).
         resp = client.post(
             "/auth/register/complete",
             content=_webauthn_body(challenge, cred_id="ok"),
@@ -999,15 +1006,6 @@ class TestExpectedOriginIsServerComputed:
         )
         assert resp.status_code == 200
         assert mock_complete.call_args.args[3] == "https://myhost.example.com"
-
-    def test_cross_origin_post_is_rejected(self, client: TestClient) -> None:
-        # A forged cross-site POST carries a mismatched Origin → 403.
-        resp = client.post(
-            "/auth/register/complete",
-            content=b"{}",
-            headers={"origin": "https://evil.example.com"},
-        )
-        assert resp.status_code == 403
 
 
 class TestLoginCompleteNonMatchingCred:
@@ -1236,33 +1234,51 @@ class TestSecurityHardening:
         assert resp.status_code == 200
         assert "https://evil.example.com" not in resp.text
 
-    def test_same_origin_post_is_allowed(self, client: TestClient) -> None:
-        # Matching Origin host passes the CSRF check (settings POST works).
+    @pytest.mark.parametrize(
+        "hostile",
+        [
+            "//evil.example.com",
+            "/\\evil.example.com",  # browsers normalize \ to /
+            "\\\\evil.example.com",
+            "https://evil.example.com/path",
+            "javascript:alert(1)",
+            "not-relative",
+        ],
+    )
+    def test_login_next_rejects_offsite_variants(self, tmp_path: Path, hostile: str) -> None:
+        client = _creds_client(tmp_path)
+        resp = client.get("/auth/login", params={"next": hostile})
+        assert resp.status_code == 200
+        # The sanitised next must always be "/" when the input is hostile.
+        assert "evil.example.com" not in resp.text
+        assert 'name="next"' not in resp.text or 'value="/"' in resp.text or "'/'" in resp.text
+
+    def test_settings_post_works_without_origin_header(self, client: TestClient) -> None:
+        # No CSRF check: a same-process POST with no Origin still succeeds.
+        # (Cross-site protection comes from SameSite=Strict on the cookie,
+        # which the browser enforces.)
         resp = client.post(
             "/settings",
             data={"ssh_timeout": "30", "ssh_user": "root"},
-            headers={"origin": "http://testserver"},
             follow_redirects=False,
         )
         assert resp.status_code == 303
 
-    def test_session_secret_regenerated_if_missing(self, tmp_path: Path) -> None:
-        from hozo.auth.webauthn_helpers import StoredCredential, store_challenge
+    def test_startup_asserts_session_secret_is_seeded(self, tmp_path: Path) -> None:
+        """create_app must raise loudly if the bootstrap path leaves
+        auth.session_secret unset — silent in-process minting would
+        invalidate every previously issued cookie on the next restart."""
+        from hozo.api.routes import create_app
 
-        client = _creds_client(tmp_path)
-        client.app.state.auth.pop("session_secret", None)
-        challenge = b"\x01\x02\x03\x04"
-        store_challenge(client.app.state.pending_challenges, challenge)
-        with patch("hozo.api.routes.complete_authentication") as mock_complete:
-            mock_complete.return_value = StoredCredential(
-                credential_id=b"\xaa\xbb",
-                public_key=b"\x01\x02",
-                sign_count=1,
-                device_name="HW Key",
-            )
-            resp = client.post("/auth/login/complete", content=_webauthn_body(challenge))
-        assert resp.status_code == 200
-        assert client.app.state.auth.get("session_secret")
+        config_path = _write_config(tmp_path)
+        with (
+            patch("hozo.scheduler.runner.HozoScheduler.start"),
+            patch("hozo.scheduler.runner.HozoScheduler.stop"),
+            patch("hozo.scheduler.runner.HozoScheduler.load_jobs_from_config", return_value=1),
+            patch("hozo.api.routes.generate_secret", return_value=""),
+        ):
+            with pytest.raises(RuntimeError, match="session_secret was not seeded"):
+                create_app(config_path=str(config_path))
 
     def test_challenge_mismatch_rejected(self, tmp_path: Path) -> None:
         from hozo.auth.webauthn_helpers import store_challenge
@@ -1272,6 +1288,82 @@ class TestSecurityHardening:
         # Body echoes a different challenge than the one pending → 400.
         resp = client.post("/auth/login/complete", content=_webauthn_body(b"\xbb\xbb"))
         assert resp.status_code == 400
+
+    def test_login_does_not_restart_scheduler(self, tmp_path: Path) -> None:
+        """A successful login must persist the updated sign-count without
+        tearing down and rebuilding the scheduler — that would block on
+        scheduler.stop(wait=True) and interrupt in-flight backups."""
+        from hozo.auth.webauthn_helpers import StoredCredential, store_challenge
+
+        client = _creds_client(tmp_path)
+        challenge = b"\x42\x42\x42\x42"
+        store_challenge(client.app.state.pending_challenges, challenge)
+        with (
+            patch("hozo.api.routes.complete_authentication") as mock_complete,
+            patch("hozo.scheduler.runner.HozoScheduler.stop") as mock_stop,
+        ):
+            mock_complete.return_value = StoredCredential(
+                credential_id=b"\xaa\xbb",
+                public_key=b"\x01\x02",
+                sign_count=5,
+                device_name="HW Key",
+            )
+            resp = client.post("/auth/login/complete", content=_webauthn_body(challenge))
+        assert resp.status_code == 200
+        # Scheduler.stop must NOT have been called as part of the login flow.
+        mock_stop.assert_not_called()
+
+    def test_failed_verify_leaves_challenge_for_retry(self, tmp_path: Path) -> None:
+        """A transient verify failure must leave the challenge in pending so
+        the browser's immediate retry succeeds, instead of forcing a new
+        ceremony from begin."""
+        from hozo.auth.webauthn_helpers import StoredCredential, store_challenge
+
+        client = _creds_client(tmp_path)
+        challenge = b"\x55\x55\x55\x55"
+        store_challenge(client.app.state.pending_challenges, challenge)
+
+        with patch("hozo.api.routes.complete_authentication") as mock_complete:
+            # First call: simulate a transient failure.
+            mock_complete.side_effect = [
+                Exception("sign-count regression"),
+                StoredCredential(
+                    credential_id=b"\xaa\xbb",
+                    public_key=b"\x01\x02",
+                    sign_count=6,
+                    device_name="HW Key",
+                ),
+            ]
+            first = client.post("/auth/login/complete", content=_webauthn_body(challenge))
+            assert first.status_code == 400
+            # Challenge must still be there for the retry.
+            assert client.app.state.pending_challenges
+            second = client.post("/auth/login/complete", content=_webauthn_body(challenge))
+            assert second.status_code == 200
+        # Now the challenge is consumed.
+        assert not client.app.state.pending_challenges
+
+    def test_device_delete_decodes_via_helper(self, tmp_path: Path) -> None:
+        """post_device_delete must decode credential IDs through the shared
+        _b64url_decode helper, not a hand-rolled inline base64 call."""
+        from hozo.auth.session import make_session_cookie
+        from hozo.auth.webauthn_helpers import StoredCredential
+
+        client = _creds_client(tmp_path)
+        target_id = b"\xaa\xbb\xcc\xdd\xee"  # length not aligned to 4 → padding-sensitive
+        cred = StoredCredential(
+            credential_id=target_id,
+            public_key=b"\x01\x02",
+            sign_count=0,
+            device_name="Target",
+        )
+        client.app.state.auth["credentials"] = [cred.to_dict()]
+        cookie_val = make_session_cookie(client.app.state.auth["session_secret"])
+        client.cookies.set("hozo_session", cookie_val)
+        encoded_id = base64.urlsafe_b64encode(target_id).decode().rstrip("=")
+        resp = client.post(f"/auth/devices/{encoded_id}/delete", follow_redirects=False)
+        assert resp.status_code == 303
+        assert client.app.state.auth["credentials"] == []
 
     @patch("hozo.api.routes.complete_registration")
     def test_configured_origin_override(self, mock_complete: MagicMock, client: TestClient) -> None:

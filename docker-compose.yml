@@ -4,11 +4,15 @@
 # Production setup:
 #   sudo mkdir -p /opt/services/hozo/{configs,logs,ssh}
 #   sudo cp configs/config.example.yaml /opt/services/hozo/configs/config.yaml
+#   sudo chmod 600 /opt/services/hozo/configs/config.yaml
 #   sudo cp ~/.ssh/id_ed25519 /opt/services/hozo/ssh/id_ed25519
 #   sudo cp ~/.ssh/id_ed25519.pub /opt/services/hozo/ssh/id_ed25519.pub
 #   touch /opt/services/hozo/ssh/known_hosts
 #   sudo chmod 600 /opt/services/hozo/ssh/id_ed25519
 #   docker compose up -d
+#
+# The config.yaml file MUST exist before `up`: Docker creates an empty
+# directory in its place otherwise and the container then fails to start.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -35,11 +39,13 @@ services:
       # TAILSCALE_AUTHKEY: tskey-auth-xxxxx
 
     volumes:
-      # ── Config directory (read-write) ───────────────────────────────────────
-      # Must be writable: the app seeds auth.session_secret on first boot and
-      # persists settings, jobs, and registered passkeys via an atomic
-      # temp-file + rename, which needs the *directory*, not a single file.
-      - /opt/services/hozo/configs:/etc/hozo
+      # ── Config file (read-write) ────────────────────────────────────────────
+      # Mounted as a single file (not its parent directory) so the container
+      # can only ever touch config.yaml — even if the web app were compromised,
+      # it cannot read or write sibling files like operator backups or .env.
+      # The writer falls back to an in-place write under a single-file mount.
+      # The host file MUST exist before `docker compose up` (see setup steps).
+      - /opt/services/hozo/configs/config.yaml:/etc/hozo/config.yaml
 
       # ── Logs (persistent, writable) ─────────────────────────────────────────
       - /opt/services/hozo/logs:/var/log/hozo

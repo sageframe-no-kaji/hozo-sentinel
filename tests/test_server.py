@@ -73,14 +73,36 @@ class TestStatus:
 
 
 class TestShutdown:
-    def test_returns_initiated_and_spawns_thread(self, client: TestClient) -> None:
+    def test_returns_scheduled_and_spawns_thread(self, client: TestClient) -> None:
         with patch("backupd.server.threading.Thread") as mock_thread:
             mock_thread.return_value = MagicMock()
             resp = client.post("/shutdown", headers=AUTH)
-        assert resp.status_code == 200
-        assert resp.json() == {"status": "shutdown_initiated"}
+        # 202 Accepted — the work is scheduled, not completed; failures are
+        # only visible in the backupd log because the response has been sent.
+        assert resp.status_code == 202
+        assert resp.json()["status"] == "scheduled"
         mock_thread.assert_called_once()
         mock_thread.return_value.start.assert_called_once()
+
+    def test_logs_error_when_safe_shutdown_fails(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """safe_shutdown returning False (e.g. shutdown binary missing) must
+        surface in the backupd log since the HTTP response has already gone."""
+        import logging
+
+        with patch("backupd.server.safe_shutdown", return_value=False):
+            with caplog.at_level(logging.ERROR, logger="backupd.server"):
+                resp = client.post("/shutdown", headers=AUTH)
+                # Give the daemon thread a moment to run.
+                import time
+
+                for _ in range(20):
+                    if any("safe_shutdown returned False" in r.message for r in caplog.records):
+                        break
+                    time.sleep(0.05)
+        assert resp.status_code == 202
+        assert any("safe_shutdown returned False" in r.message for r in caplog.records)
 
 
 class TestDiskStatus:
