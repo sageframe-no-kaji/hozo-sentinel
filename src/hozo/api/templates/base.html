@@ -23,6 +23,9 @@
     .htmx-indicator { opacity:0; transition: opacity 0.2s; }
     .htmx-request .htmx-indicator { opacity:1; }
     .htmx-request.htmx-indicator { opacity:1; }
+    /* Hide the default disclosure triangle on the kebab menu summary. */
+    details.job-menu > summary::-webkit-details-marker { display:none; }
+    details.job-menu > summary { list-style:none; }
   </style>
 </head>
 <body class="min-h-screen font-mono">
@@ -59,6 +62,25 @@
   <main class="max-w-5xl mx-auto px-6 py-8">
     {% block content %}{% endblock %}
   </main>
+
+  <script>
+    // Close any open <details class="job-menu"> when the user clicks outside it
+    // or hits Escape — gives the ⋯ kebab menu proper popup behavior without
+    // pulling in a JS framework.
+    document.addEventListener('click', function (e) {
+      document.querySelectorAll('details.job-menu[open]').forEach(function (d) {
+        if (!d.contains(e.target)) d.removeAttribute('open');
+      });
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('details.job-menu[open]').forEach(function (d) {
+          d.removeAttribute('open');
+        });
+      }
+    });
+  </script>
+
   <footer class="text-center text-slate-600 text-xs py-6 space-y-1">
     <div>Hōzō v0.1.0 · 宝蔵</div>
     <div>
