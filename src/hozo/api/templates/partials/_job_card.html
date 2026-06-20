@@ -6,14 +6,20 @@
       <h2 class="text-lg font-semibold">{{ job.name }}</h2>
       {% if job.description %}<p class="text-slate-400 text-sm mt-0.5">{{ job.description }}</p>{% endif %}
     </div>
-    <span class="text-xs px-2 py-1 rounded
-      {% if job.last_result %}
-        {% if job.last_result.success %}badge-ok{% else %}badge-err{% endif %}
-      {% else %}badge-nil{% endif %}">
-      {% if job.last_result %}
-        {% if job.last_result.success %}✓ OK{% else %}✗ Failed{% endif %}
-      {% else %}— No runs yet{% endif %}
-    </span>
+    {# Status badge doubles as the log affordance: when a run has completed,
+       clicking the badge takes you to its log. Failed badges spell out the
+       call-to-action; the OK badge brightens on hover. The "no runs yet"
+       case stays inert — there's nothing to view. #}
+    {% if job.last_result %}
+    <a href="/jobs/{{ job.name }}/log"
+       class="text-xs px-2 py-1 rounded no-underline transition-colors
+              {% if job.last_result.success %}badge-ok hover:brightness-110{% else %}badge-err hover:brightness-110{% endif %}"
+       title="View log for {{ job.name }}">
+      {% if job.last_result.success %}✓ OK{% else %}✗ Failed — view log{% endif %}
+    </a>
+    {% else %}
+    <span class="text-xs px-2 py-1 rounded badge-nil">— No runs yet</span>
+    {% endif %}
   </div>
 
   <div class="grid grid-cols-2 gap-2 text-sm text-slate-300 mb-4">
@@ -32,9 +38,9 @@
   </div>
 
   {# Action row — Run Backup is primary (largest, most saturated). Wake and
-     Shutdown are operational secondaries (smaller, quieter). Job-management
-     actions (Edit / Log / Delete) live behind the ⋯ menu on the right so the
-     destructive Delete can't be mis-clicked from the resting state. #}
+     Shutdown are operational secondaries (smaller, quieter). Edit and Delete
+     live behind the ⋯ menu so destructive Delete can't be mis-clicked from
+     the resting state. The log is reached via the status badge above. #}
   <div class="flex items-center gap-2">
     <button class="btn-primary text-sm px-4 py-2 rounded cursor-pointer text-white font-semibold"
             hx-post="/run_backup"
@@ -71,10 +77,6 @@
         <a href="/jobs/{{ job.name }}/edit"
            class="block px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 no-underline">
           ✏ Edit job
-        </a>
-        <a href="/jobs/{{ job.name }}/log"
-           class="block px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 no-underline">
-          📋 View log
         </a>
         <div class="border-t border-slate-700 my-1"></div>
         <form method="post" action="/jobs/{{ job.name }}/delete"
