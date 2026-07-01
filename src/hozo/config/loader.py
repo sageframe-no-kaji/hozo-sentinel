@@ -70,7 +70,7 @@ def validate_config(config: dict[str, Any]) -> list[str]:
             errors.append(f"{prefix}: must be a mapping")
             continue
         for field in required_fields:
-            if not job.get(field):
+            if field not in job:
                 errors.append(f"{prefix}: missing required field '{field}'")
         mac = job.get("mac_address", "")
         if mac and not _MAC_RE.match(mac):
