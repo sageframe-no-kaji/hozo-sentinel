@@ -104,3 +104,6 @@ docker-compose.local.yml
 # ── Obsidian vault metadata (co-located with project) ────────
 .obsidian/
 .trash/
+
+# ── Ho System process docs (private; versioned as nested repo) ─
+ho-process/
