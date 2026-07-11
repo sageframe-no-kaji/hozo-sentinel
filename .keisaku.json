@@ -1,0 +1,113 @@
+{
+  "keisaku": 1,
+  "works": [
+    {
+      "id": "hozo",
+      "name": "Hōzō",
+      "native_script": "宝蔵",
+      "native_translation": "Treasury",
+      "hero": "Three hours, 278 tests, 99% coverage.",
+      "importance": 7,
+      "featured": true,
+      "group": "production-systems",
+      "themes": [
+        "sovereignty",
+        "continuity",
+        "infrastructure"
+      ],
+      "sort_order_within_group": 20,
+      "tags": [
+        "software",
+        "production-system",
+        "zfs",
+        "backup-orchestration",
+        "infrastructure",
+        "ho-system-validation"
+      ],
+      "media": [
+        "software"
+      ],
+      "status": "shipped",
+      "repo": "https://github.com/sageframe-no-kaji/hozo-sentinel.git",
+      "license": "MIT",
+      "deployment": [
+        {
+          "label": "GitHub repo",
+          "url": "https://github.com/sageframe-no-kaji/hozo"
+        },
+        {
+          "label": "Live site + interactive demo",
+          "url": "https://hozo.sageframe.net"
+        }
+      ],
+      "tech_stack": "Python (wakeonlan, paramiko, pyyaml, click, fastapi, uvicorn, jinja2, httpx, apscheduler, pydantic, python-multipart, webauthn, itsdangerous)",
+      "created": "2026-02-25",
+      "last_updated": "2026-07-09",
+      "conceived": "2025-12-13",
+      "short_description": "Wake-on-demand ZFS backup orchestrator. Pushes ZFS snapshots to a low-power remote backup node using syncoid over SSH, waking the node only when a backup run is scheduled or triggered. Runs entirely on the source machine — no agent needed on the remote. Bootstrap web UI with WebAuthn passkey auth provides job dashboard, run history, log viewer, break-glass DR restore. 278 tests, 99% coverage, zero lint or type errors. Built in approximately three hours using the Ho System.",
+      "substantive_description": [
+        "Hōzō is the second proof, and the more interesting one. Kanyō took six weeks; Hōzō took three hours. The delta is not about the projects' relative complexity — it's about the practitioner's progression through Shu, Ha, and Ri. The same person who needed six weeks to ship Kanyō shipped Hōzō between dinner and bedtime, with higher test coverage and lower error rate.",
+        "The methodology's claim isn't you can ship one thing this way. The methodology's claim is you become someone who ships this way. Hōzō is the documented evidence. The 278 tests aren't decoration. The 99% coverage isn't decoration. They're the receipts a skeptical reader requires before believing that a non-engineer running a disciplined practice can produce work indistinguishable from senior engineering output."
+      ],
+      "images": {
+        "gallery": []
+      },
+      "relationships": [
+        {
+          "edge_class": "narrative",
+          "target": "ho-system",
+          "type": "validates",
+          "articulated_in": "three-hours",
+          "note": "The Shu-Ha-Ri progression made shippable: three hours, 278 tests, 99% coverage."
+        },
+        {
+          "edge_class": "narrative",
+          "target": "kanyo",
+          "type": "descends_from",
+          "note": "The Kanyō-to-Hōzō delta — six weeks to three hours — is the practitioner-progression evidence."
+        }
+      ],
+      "state": {
+        "stage": "dev",
+        "last": "Post-review hardening pass across auth, scheduler, deploy, and UX; UI job-card action hierarchy cleanup; config loader fix for key-presence check on required fields (commit `0fd19c4`, 2026-07-01). Dashboard promotes \"View log\" onto the status badge. Project has a Docker container, web UI, `backupd` agent authentication, passkey/CSRF hardening, and ZFS provisioning docs.",
+        "next": "unset — practitioner to point (K6 seeded retroactively). Most recent commits suggest active hardening; a natural next step would be end-to-end integration testing or a beta deployment against a real backup target.",
+        "as_of": "2026-07-09"
+      },
+      "_keisaku": {
+        "generated_at": "2026-07-10T23:58:15",
+        "generator_version": "1",
+        "sources": {
+          "readme": "README.md",
+          "contract": "ho-process/kamae-6-hozo-sentinel-state-memory.md",
+          "manifest": "pyproject.toml"
+        },
+        "derived_defaults": {
+          "id": "hozo-sentinel",
+          "name": "Hōzō (宝蔵)",
+          "media": [
+            "software"
+          ],
+          "status": "in-development",
+          "created": "2026-02-20",
+          "tags": [
+            "python",
+            "wakeonlan",
+            "paramiko",
+            "pyyaml",
+            "click",
+            "fastapi",
+            "uvicorn",
+            "jinja2",
+            "httpx",
+            "apscheduler",
+            "pydantic",
+            "python-multipart",
+            "webauthn",
+            "itsdangerous"
+          ]
+        },
+        "contract_issues": []
+      }
+    }
+  ]
+}
