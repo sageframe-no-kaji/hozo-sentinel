@@ -42,7 +42,7 @@
       ],
       "tech_stack": "Python (wakeonlan, paramiko, pyyaml, click, fastapi, uvicorn, jinja2, httpx, apscheduler, pydantic, python-multipart, webauthn, itsdangerous)",
       "created": "2026-02-25",
-      "last_updated": "2026-07-09",
+      "last_updated": "2026-07-10",
       "conceived": "2025-12-13",
       "short_description": "Wake-on-demand ZFS backup orchestrator. Pushes ZFS snapshots to a low-power remote backup node using syncoid over SSH, waking the node only when a backup run is scheduled or triggered. Runs entirely on the source machine — no agent needed on the remote. Bootstrap web UI with WebAuthn passkey auth provides job dashboard, run history, log viewer, break-glass DR restore. 278 tests, 99% coverage, zero lint or type errors. Built in approximately three hours using the Ho System.",
       "substantive_description": [
@@ -74,7 +74,7 @@
         "as_of": "2026-07-09"
       },
       "_keisaku": {
-        "generated_at": "2026-07-10T23:58:15",
+        "generated_at": "2026-07-11T13:34:16",
         "generator_version": "1",
         "sources": {
           "readme": "README.md",
