@@ -1,0 +1,7 @@
+# Hōzō — description
+
+A wake-on-demand ZFS backup orchestrator that pushes snapshots to a low-power remote node, waking it only when a run is due.
+
+Hōzō (宝蔵, "treasury") pushes ZFS snapshots to a low-power remote backup node using syncoid over SSH, waking the node with Wake-on-LAN only when a backup run is scheduled or triggered, and running entirely on the source machine so no agent is needed on the remote. A bootstrap web UI with WebAuthn passkey authentication provides a job dashboard, run history, a log viewer, and a break-glass disaster-recovery restore. It is also the second Ho System proof, and the more interesting one: Kanyō took six weeks, Hōzō took roughly three hours, and the delta is not about relative complexity but about the practitioner's progression through Shu, Ha, and Ri — the same person shipped it between dinner and bedtime, with higher coverage and a lower error rate. The 278 tests, 99% coverage, and zero lint or type errors are not decoration; they are the receipts a skeptical reader requires before believing a non-engineer running a disciplined practice can produce work indistinguishable from senior engineering output. With Sage ZFS, which maps and judges the whole protection graph, Hōzō forms the backup-focused devops layer adjacent to the Kṣetra-Ops suite.
+
+Python with syncoid for replication, Wake-on-LAN for remote power management, and a bootstrap web UI secured by WebAuthn passkeys.

@@ -44,10 +44,10 @@
       "created": "2026-02-25",
       "last_updated": "2026-07-09",
       "conceived": "2025-12-13",
-      "short_description": "Wake-on-demand ZFS backup orchestrator. Pushes ZFS snapshots to a low-power remote backup node using syncoid over SSH, waking the node only when a backup run is scheduled or triggered. Runs entirely on the source machine — no agent needed on the remote. Bootstrap web UI with WebAuthn passkey auth provides job dashboard, run history, log viewer, break-glass DR restore. 278 tests, 99% coverage, zero lint or type errors. Built in approximately three hours using the Ho System.",
+      "short_description": "A wake-on-demand ZFS backup orchestrator that pushes snapshots to a low-power remote node, waking it only when a run is due.",
       "substantive_description": [
-        "Hōzō is the second proof, and the more interesting one. Kanyō took six weeks; Hōzō took three hours. The delta is not about the projects' relative complexity — it's about the practitioner's progression through Shu, Ha, and Ri. The same person who needed six weeks to ship Kanyō shipped Hōzō between dinner and bedtime, with higher test coverage and lower error rate.",
-        "The methodology's claim isn't you can ship one thing this way. The methodology's claim is you become someone who ships this way. Hōzō is the documented evidence. The 278 tests aren't decoration. The 99% coverage isn't decoration. They're the receipts a skeptical reader requires before believing that a non-engineer running a disciplined practice can produce work indistinguishable from senior engineering output."
+        "Hōzō (宝蔵, \"treasury\") pushes ZFS snapshots to a low-power remote backup node using syncoid over SSH, waking the node with Wake-on-LAN only when a backup run is scheduled or triggered, and running entirely on the source machine so no agent is needed on the remote. A bootstrap web UI with WebAuthn passkey authentication provides a job dashboard, run history, a log viewer, and a break-glass disaster-recovery restore. It is also the second Ho System proof, and the more interesting one: Kanyō took six weeks, Hōzō took roughly three hours, and the delta is not about relative complexity but about the practitioner's progression through Shu, Ha, and Ri — the same person shipped it between dinner and bedtime, with higher coverage and a lower error rate. The 278 tests, 99% coverage, and zero lint or type errors are not decoration; they are the receipts a skeptical reader requires before believing a non-engineer running a disciplined practice can produce work indistinguishable from senior engineering output. With Sage ZFS, which maps and judges the whole protection graph, Hōzō forms the backup-focused devops layer adjacent to the Kṣetra-Ops suite.",
+        "Python with syncoid for replication, Wake-on-LAN for remote power management, and a bootstrap web UI secured by WebAuthn passkeys."
       ],
       "images": {
         "gallery": []
@@ -74,11 +74,12 @@
         "as_of": "2026-07-09"
       },
       "_keisaku": {
-        "generated_at": "2026-07-12T10:36:25",
+        "generated_at": "2026-07-13T10:31:22",
         "generator_version": "1",
         "sources": {
           "readme": "README.md",
           "contract": "ho-process/kamae-6-hozo-sentinel-state-memory.md",
+          "description": "metadata/description.md",
           "manifest": "pyproject.toml"
         },
         "derived_defaults": {
@@ -104,6 +105,11 @@
             "python-multipart",
             "webauthn",
             "itsdangerous"
+          ],
+          "short_description": "A wake-on-demand ZFS backup orchestrator that pushes snapshots to a low-power remote node, waking it only when a run is due.",
+          "substantive_description": [
+            "Hōzō (宝蔵, \"treasury\") pushes ZFS snapshots to a low-power remote backup node using syncoid over SSH, waking the node with Wake-on-LAN only when a backup run is scheduled or triggered, and running entirely on the source machine so no agent is needed on the remote. A bootstrap web UI with WebAuthn passkey authentication provides a job dashboard, run history, a log viewer, and a break-glass disaster-recovery restore. It is also the second Ho System proof, and the more interesting one: Kanyō took six weeks, Hōzō took roughly three hours, and the delta is not about relative complexity but about the practitioner's progression through Shu, Ha, and Ri — the same person shipped it between dinner and bedtime, with higher coverage and a lower error rate. The 278 tests, 99% coverage, and zero lint or type errors are not decoration; they are the receipts a skeptical reader requires before believing a non-engineer running a disciplined practice can produce work indistinguishable from senior engineering output. With Sage ZFS, which maps and judges the whole protection graph, Hōzō forms the backup-focused devops layer adjacent to the Kṣetra-Ops suite.",
+            "Python with syncoid for replication, Wake-on-LAN for remote power management, and a bootstrap web UI secured by WebAuthn passkeys."
           ]
         },
         "contract_issues": []
