@@ -67,6 +67,8 @@
           "note": "The Kanyō-to-Hōzō delta — six weeks to three hours — is the practitioner-progression evidence."
         }
       ],
+      "availability": "shipped",
+      "usage": "others",
       "state": {
         "stage": "dev",
         "last": "Post-review hardening pass across auth, scheduler, deploy, and UX; UI job-card action hierarchy cleanup; config loader fix for key-presence check on required fields (commit `0fd19c4`, 2026-07-01). Dashboard promotes \"View log\" onto the status badge. Project has a Docker container, web UI, `backupd` agent authentication, passkey/CSRF hardening, and ZFS provisioning docs.",
