@@ -1,7 +1,10 @@
 """Tests for job orchestration."""
 
+import logging
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from hozo.core.job import BackupJob, JobResult, run_job, run_restore_job
 
@@ -503,3 +506,112 @@ class TestMaybeShutdownWarning:
 
         # Job should still succeed even with nonzero shutdown exit code
         assert result.success is True
+
+
+class TestRunJobWithoutMacAddress:
+    """A job targeting an always-on host carries mac_address='' — nothing to wake."""
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_command")
+    @patch("hozo.core.job.list_remote_snapshots")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_empty_mac_skips_wake_and_reaches_ssh_wait(
+        self,
+        mock_wake: MagicMock,
+        mock_wait: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_snapshots: MagicMock,
+        mock_run_cmd: MagicMock,
+        mock_sleep: MagicMock,
+    ) -> None:
+        mock_wait.return_value = True
+        mock_syncoid.return_value = (True, "")
+        mock_snapshots.return_value = ["backup/data@snap1"]
+        mock_run_cmd.return_value = (0, "", "")
+
+        job = _make_job(mac_address="")
+        result = run_job(job)
+
+        mock_wake.assert_not_called()
+        # The job must still get as far as the SSH wait, not bail out early.
+        mock_wait.assert_called_once()
+        # The 3-second settle exists to let a waking machine come up; with no
+        # wake there is nothing to settle for.
+        mock_sleep.assert_not_called()
+        assert result.success is True
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_command")
+    @patch("hozo.core.job.list_remote_snapshots")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_empty_mac_emits_no_wol_log_line(
+        self,
+        mock_wake: MagicMock,
+        mock_wait: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_snapshots: MagicMock,
+        mock_run_cmd: MagicMock,
+        mock_sleep: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_wait.return_value = True
+        mock_syncoid.return_value = (True, "")
+        mock_snapshots.return_value = []
+        mock_run_cmd.return_value = (0, "", "")
+
+        with caplog.at_level(logging.INFO, logger="hozo.core.job"):
+            run_job(_make_job(mac_address=""))
+
+        assert not any("WOL" in record.getMessage() for record in caplog.records)
+
+    @patch("hozo.core.job.time.sleep")
+    @patch("hozo.core.job.run_command")
+    @patch("hozo.core.job.list_remote_snapshots")
+    @patch("hozo.core.job.run_syncoid")
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_valid_mac_still_wakes_logs_and_settles(
+        self,
+        mock_wake: MagicMock,
+        mock_wait: MagicMock,
+        mock_syncoid: MagicMock,
+        mock_snapshots: MagicMock,
+        mock_run_cmd: MagicMock,
+        mock_sleep: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_wake.return_value = True
+        mock_wait.return_value = True
+        mock_syncoid.return_value = (True, "")
+        mock_snapshots.return_value = []
+        mock_run_cmd.return_value = (0, "", "")
+
+        job = _make_job(mac_address="AA:BB:CC:DD:EE:FF", wol_broadcast="192.168.1.255")
+        with caplog.at_level(logging.INFO, logger="hozo.core.job"):
+            run_job(job)
+
+        mock_wake.assert_called_once_with("AA:BB:CC:DD:EE:FF", ip_address="192.168.1.255")
+        mock_sleep.assert_called_once_with(3)
+        assert any("WOL" in record.getMessage() for record in caplog.records)
+
+
+class TestRunRestoreJobWithoutMacAddress:
+    """The restore path was already guarded; lock the behaviour in."""
+
+    @patch("hozo.core.job.wait_for_ssh")
+    @patch("hozo.core.job.wake")
+    def test_empty_mac_skips_wake_and_reaches_ssh_wait(
+        self,
+        mock_wake: MagicMock,
+        mock_wait: MagicMock,
+    ) -> None:
+        mock_wait.return_value = False  # stop the job right after the SSH wait
+
+        run_restore_job(_make_job(mac_address=""))
+
+        mock_wake.assert_not_called()
+        mock_wait.assert_called_once()

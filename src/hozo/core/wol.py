@@ -17,8 +17,14 @@ def wake(mac_address: str, ip_address: str = "255.255.255.255", port: int = 9) -
         port: UDP port for WOL packet (default: 9)
 
     Returns:
-        True if packet was sent successfully
+        True if a packet was sent, False if there was no MAC address to send to.
     """
+    # A blank MAC means the target is always on — wakeonlan raises ValueError on
+    # an empty string, so absorb it here rather than letting it escape.
+    if not mac_address or not mac_address.strip():
+        logger.info("No MAC address configured — skipping WOL packet")
+        return False
+
     logger.info("Sending WOL magic packet to %s via %s:%d", mac_address, ip_address, port)
     send_magic_packet(mac_address, ip_address=ip_address, port=port)
     logger.debug("WOL packet sent successfully")

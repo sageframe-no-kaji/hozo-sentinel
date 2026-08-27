@@ -111,11 +111,15 @@ def _run_job_inner(
 ) -> JobResult:
     # ── Step 1: Wake remote ──────────────────────────────────────────────────
     logger.info("=== Starting job: %s ===", job.name)
-    logger.info("[%s] Sending WOL packet → MAC %s", job.name, job.mac_address)
-    wake(job.mac_address, ip_address=job.wol_broadcast)
+    # An empty mac_address means the target is always on (e.g. a host that runs
+    # 24/7), not that the MAC was left unset by mistake. Nothing to wake, nothing
+    # to announce, and no reason to wait for a machine that is already up.
+    if job.mac_address:
+        logger.info("[%s] Sending WOL packet → MAC %s", job.name, job.mac_address)
+        wake(job.mac_address, ip_address=job.wol_broadcast)
 
-    # Give the machine a moment before we start hammering port 22
-    time.sleep(3)
+        # Give the machine a moment before we start hammering port 22
+        time.sleep(3)
 
     # ── Step 2: Wait for SSH ─────────────────────────────────────────────────
     logger.info("[%s] Waiting for SSH on %s (timeout: %ds)", job.name, job.target_host, job.timeout)

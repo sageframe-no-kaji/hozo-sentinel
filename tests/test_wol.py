@@ -48,3 +48,22 @@ class TestWake:
         """Should always return True on successful send."""
         result = wake("11:22:33:44:55:66")
         assert result is True
+
+    @patch("hozo.core.wol.send_magic_packet")
+    def test_wake_empty_mac_returns_false(self, mock_send: object) -> None:
+        """An empty MAC means the target is always on — no packet, no ValueError."""
+        assert wake("") is False
+        mock_send.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("hozo.core.wol.send_magic_packet")
+    def test_wake_whitespace_mac_returns_false(self, mock_send: object) -> None:
+        """A whitespace-only MAC is as blank as an empty one."""
+        assert wake("   ") is False
+        mock_send.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("hozo.core.wol.send_magic_packet")
+    def test_wake_none_mac_returns_false(self, mock_send: object) -> None:
+        """Defensive: a None MAC from loosely-typed config must not raise."""
+        # mac_address is declared str; None is the shape bad config actually takes.
+        assert wake(None) is False  # type: ignore[arg-type]
+        mock_send.assert_not_called()  # type: ignore[attr-defined]
