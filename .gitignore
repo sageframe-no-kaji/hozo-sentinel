@@ -107,3 +107,6 @@ docker-compose.local.yml
 
 # ── Ho System process docs (private; versioned as nested repo) ─
 ho-process/
+
+# Agent prompts - local only
+prompts/
