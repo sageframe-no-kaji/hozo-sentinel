@@ -41,8 +41,12 @@ settings:
 auth:
   # rp_id: hozo.tailnet.ts.net
   rp_id: localhost
-  # session_secret is generated automatically on first boot and written back
-  # here. Leave it unset; do not share it — it signs session cookies.
+  # session_secret signs session cookies. Preferred route is the
+  # HOZO_SESSION_SECRET environment variable (see .env.example) — a secret set
+  # there is never written into this file, which matters because this file gets
+  # copied into the config repo. If the variable is unset, hozo falls back to
+  # generating one on first boot and writing it back here. Leave it unset; do
+  # not share it.
   # credentials: []   # populated as you register passkeys
 
   # origin (advanced): the full URL the browser sees when loading Hōzō.

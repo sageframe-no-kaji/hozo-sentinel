@@ -391,6 +391,8 @@ All HTML routes require a valid session cookie (WebAuthn login). The JSON endpoi
 
 ## Deployment
 
+Set `HOZO_SESSION_SECRET` from a `.env` file (see [`.env.example`](.env.example)) so the session secret never gets written into `config.yaml`.
+
 ### Tailscale Serve (recommended)
 
 Tailscale Serve tunnels traffic from your tailnet to a local port with automatic HTTPS and a valid certificate — no port-forwarding, no self-signed certs.

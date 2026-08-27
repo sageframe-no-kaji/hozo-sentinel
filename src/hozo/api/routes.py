@@ -22,8 +22,8 @@ from hozo.api.models import (
 )
 from hozo.auth.session import (
     COOKIE_NAME,
-    generate_secret,
     make_session_cookie,
+    resolve_session_secret,
     verify_session_cookie,
 )
 from hozo.auth.webauthn_helpers import (
@@ -78,7 +78,7 @@ class HozoAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         cookie = request.cookies.get(COOKIE_NAME, "")
-        secret: str = state.auth.get("session_secret", "")
+        secret: str = state.session_secret
         if cookie and verify_session_cookie(cookie, secret):
             return await call_next(request)
 
@@ -115,6 +115,10 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     app.state.raw_config = {}
     app.state.settings = {}
     app.state.auth = {}
+    # Live session-signing secret. Deliberately NOT stored in app.state.auth:
+    # that dict is the on-disk mirror and every save path serializes it, so a
+    # secret supplied via HOZO_SESSION_SECRET would leak into config.yaml.
+    app.state.session_secret = ""
     app.state.jobs = []
     app.state.last_results = {}
     app.state.last_restore_results = {}
@@ -153,12 +157,16 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         app.state.scheduler = sched
         logger.info("Scheduler started with %d job(s)", len(app.state.jobs))
 
-    # Seed auth.session_secret if the config exists but has no secret yet
+    # Seed the session secret: HOZO_SESSION_SECRET first, then the config file,
+    # then a freshly generated one. Only the last case is written back to disk —
+    # an env-supplied secret must never reach config.yaml.
     if _config_path.exists():
         raw_seed = load_config(_config_path) or {}
         auth_seed: dict[str, Any] = raw_seed.get("auth", {})
-        if not auth_seed.get("session_secret"):
-            auth_seed["session_secret"] = generate_secret()
+        config_secret = auth_seed.get("session_secret")
+        secret, from_env = resolve_session_secret(config_secret)
+        if not from_env and not config_secret:
+            auth_seed["session_secret"] = secret
             raw_seed["auth"] = auth_seed
             write_config(_config_path, raw_seed)
         # Populate in-memory auth from the seeded snapshot before
@@ -166,18 +174,26 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         # a stale or empty reload, which would otherwise leave app.state.auth
         # empty and break the session-secret invariant below.
         app.state.auth = auth_seed
+        app.state.session_secret = secret
         _load_jobs_and_scheduler()
     else:
         # Bootstrap: no config file yet — seed a session secret in memory
         # so the first credential save has a stable secret to write.
-        app.state.auth["session_secret"] = generate_secret()
+        secret, from_env = resolve_session_secret(None)
+        app.state.session_secret = secret
+        if not from_env:
+            app.state.auth["session_secret"] = secret
         logger.warning("Config not found at %s — running without jobs", _config_path)
+
+    # Which source is in play, never the value — operators need this when
+    # sessions behave unexpectedly after a deploy.
+    logger.info("Session secret source: %s", "environment" if from_env else "config file")
 
     # Invariant: every code path that issues or verifies a session cookie
     # depends on auth.session_secret being present. If it isn't here, the
     # bootstrap above is broken — fail fast rather than silently minting a
     # different secret per process that invalidates cookies on every restart.
-    if not app.state.auth.get("session_secret"):
+    if not app.state.session_secret:
         raise RuntimeError("auth.session_secret was not seeded during startup — check create_app")
 
     app.add_middleware(HozoAuthMiddleware)
@@ -217,7 +233,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         return result
 
     def _is_authed(request: Request) -> bool:
-        secret = app.state.auth.get("session_secret", "")
+        secret = app.state.session_secret
         cookie = request.cookies.get(COOKIE_NAME, "")
         return bool(cookie and secret and verify_session_cookie(cookie, secret))
 
@@ -226,7 +242,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
 
     def _session_secret() -> str:
         """Return the session-signing secret seeded by create_app."""
-        return str(app.state.auth["session_secret"])
+        return str(app.state.session_secret)
 
     def _detect_origin(request: Request, rp_id: str) -> str:
         """Compute the expected WebAuthn origin from server-side config.

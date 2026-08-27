@@ -1275,7 +1275,8 @@ class TestSecurityHardening:
             patch("hozo.scheduler.runner.HozoScheduler.start"),
             patch("hozo.scheduler.runner.HozoScheduler.stop"),
             patch("hozo.scheduler.runner.HozoScheduler.load_jobs_from_config", return_value=1),
-            patch("hozo.api.routes.generate_secret", return_value=""),
+            # Generation moved behind resolve_session_secret; patch it at source.
+            patch("hozo.auth.session.generate_secret", return_value=""),
         ):
             with pytest.raises(RuntimeError, match="session_secret was not seeded"):
                 create_app(config_path=str(config_path))

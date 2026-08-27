@@ -5,6 +5,8 @@
 #   sudo mkdir -p /opt/services/hozo/{configs,logs,ssh}
 #   sudo cp configs/config.example.yaml /opt/services/hozo/configs/config.yaml
 #   sudo chmod 600 /opt/services/hozo/configs/config.yaml
+#   cp .env.example /opt/services/hozo/.env   # set HOZO_SESSION_SECRET
+#   sudo chmod 600 /opt/services/hozo/.env
 #   sudo cp ~/.ssh/id_ed25519 /opt/services/hozo/ssh/id_ed25519
 #   sudo cp ~/.ssh/id_ed25519.pub /opt/services/hozo/ssh/id_ed25519.pub
 #   touch /opt/services/hozo/ssh/known_hosts
@@ -32,8 +34,14 @@ services:
       - NET_ADMIN
       - NET_RAW
 
+    # Session secret lives here, not in config.yaml — .env is gitignored, and
+    # a secret in a .yaml travels with the config into the sageframe-config repo.
+    env_file:
+      - .env
+
     environment:
       HOZO_CONFIG: /etc/hozo/config.yaml
+      HOZO_SESSION_SECRET: ${HOZO_SESSION_SECRET:-}
       TZ: America/New_York
       # Uncomment to inject a Tailscale auth key at startup:
       # TAILSCALE_AUTHKEY: tskey-auth-xxxxx
