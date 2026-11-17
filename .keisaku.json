@@ -42,7 +42,7 @@
       ],
       "tech_stack": "Python (wakeonlan, paramiko, pyyaml, click, fastapi, uvicorn, jinja2, httpx, apscheduler, pydantic, python-multipart, webauthn, itsdangerous)",
       "created": "2026-02-25",
-      "last_updated": "2026-07-14",
+      "last_updated": "2026-08-27",
       "conceived": "2025-12-13",
       "short_description": "A wake-on-demand ZFS backup orchestrator that pushes snapshots to a low-power remote node, waking it only when a run is due.",
       "substantive_description": [
@@ -69,6 +69,7 @@
       ],
       "availability": "shipped",
       "usage": "others",
+      "headline": "unset — practitioner to point (K6 seeded retroactively).",
       "state": {
         "stage": "dev",
         "last": "Post-review hardening pass across auth, scheduler, deploy, and UX; UI job-card action hierarchy cleanup; config loader fix for key-presence check on required fields (commit `0fd19c4`, 2026-07-01). Dashboard promotes \"View log\" onto the status badge. Project has a Docker container, web UI, `backupd` agent authentication, passkey/CSRF hardening, and ZFS provisioning docs.",
@@ -76,7 +77,7 @@
         "as_of": "2026-07-09"
       },
       "_keisaku": {
-        "generated_at": "2026-07-19T11:32:58",
+        "generated_at": "2026-11-16T10:49:44",
         "generator_version": "1",
         "sources": {
           "readme": "README.md",
@@ -112,7 +113,8 @@
           "substantive_description": [
             "Hōzō (宝蔵, \"treasury\") pushes ZFS snapshots to a low-power remote backup node using syncoid over SSH, waking the node with Wake-on-LAN only when a backup run is scheduled or triggered, and running entirely on the source machine so no agent is needed on the remote. A bootstrap web UI with WebAuthn passkey authentication provides a job dashboard, run history, a log viewer, and a break-glass disaster-recovery restore. It is also the second Ho System proof, and the more interesting one: Kanyō took six weeks, Hōzō took roughly three hours, and the delta is not about relative complexity but about the practitioner's progression through Shu, Ha, and Ri — the same person shipped it between dinner and bedtime, with higher coverage and a lower error rate. The 278 tests, 99% coverage, and zero lint or type errors are not decoration; they are the receipts a skeptical reader requires before believing a non-engineer running a disciplined practice can produce work indistinguishable from senior engineering output. With Sage ZFS, which maps and judges the whole protection graph, Hōzō forms the backup-focused devops layer adjacent to the Kṣetra-Ops suite.",
             "Python with syncoid for replication, Wake-on-LAN for remote power management, and a bootstrap web UI secured by WebAuthn passkeys."
-          ]
+          ],
+          "headline": "unset — practitioner to point (K6 seeded retroactively)."
         },
         "contract_issues": []
       }
